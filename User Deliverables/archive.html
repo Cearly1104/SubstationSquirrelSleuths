@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Portal - Archive</title>
+  <style>
+    body{font-family:system-ui,sans-serif;margin:0;background:#0b1020;color:#e8eefc}
+    header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:#121a33;position:sticky;top:0}
+    a{color:#93c5fd;text-decoration:none}
+    .pill{border:1px solid #2a3560;background:#0b1020;padding:8px 10px;border-radius:999px;color:#e8eefc}
+    main{padding:18px}
+    .card{background:#121a33;border:1px solid #2a3560;border-radius:14px;padding:14px}
+    table{width:100%;border-collapse:collapse}
+    th,td{border-bottom:1px solid #2a3560;padding:10px;text-align:left}
+    .muted{opacity:.75}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  </style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <strong>SSS Portal</strong>
+    <span class="muted">Archive</span>
+    <a class="pill" href="/dashboard">Dashboard</a>
+  </div>
+  <div class="row">
+    <a class="pill" href="/logout">Logout</a>
+  </div>
+</header>
+
+<main>
+  <div class="card">
+    {% if items|length == 0 %}
+      <div class="muted">No day folders found.</div>
+    {% else %}
+      <table>
+        <thead>
+          <tr>
+            <th>Day</th>
+            <th>Events</th>
+            <th>Images</th>
+            <th>Videos</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+            <tr>
+              <td><strong>{{ it.day }}</strong></td>
+              <td>{{ it.event_count }}</td>
+              <td>{{ it.image_count }}</td>
+              <td>{{ it.video_count }}</td>
+              <td class="row">
+                <a class="pill" href="/day/{{ it.day }}">View</a>
+                <a class="pill" href="/download/day/{{ it.day }}.zip">Download All</a>
+                <a class="pill" href="/download/day/{{ it.day }}/images.zip">Images</a>
+                <a class="pill" href="/download/day/{{ it.day }}/videos.zip">Videos</a>
+                <a class="pill" href="/download/day/{{ it.day }}/logs.zip">Logs</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+</main>
+</body>
+</html>
