@@ -1,121 +1,244 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Portal - Dashboard</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Substation Squirrel Sleuths | Dashboard</title>
   <style>
-    body{font-family:system-ui,sans-serif;margin:0;background:#0b1020;color:#e8eefc}
-    header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:#121a33;position:sticky;top:0}
-    a{color:#93c5fd;text-decoration:none}
+    :root{
+      --bg:#11161a;
+      --ink:#e7edf2;
+      --muted:#9aa7b4;
+      --card:#1a2228;
+      --line:#2c3943;
+      --accent:#0f3f76;
+      --accent-soft:#1f3d43;
+      --alert:#f59e0b;
+      --font-head:"Space Grotesk","Segoe UI",sans-serif;
+      --font-body:"IBM Plex Sans","Segoe UI",sans-serif;
+      --font-mono:"IBM Plex Mono","Cascadia Mono",monospace;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      color:var(--ink);
+      font-family:var(--font-body);
+      background:var(--bg);
+    }
+    .shell{max-width:1180px;margin:0 auto;padding:22px 18px 44px}
+    .top{
+      display:flex;justify-content:space-between;align-items:center;gap:12px;
+      margin-bottom:16px;flex-wrap:wrap;
+    }
+    .brand{display:flex;align-items:center;gap:12px}
+    .logo{
+      width:38px;height:38px;border-radius:12px;background:var(--accent);color:#fff;
+      display:grid;place-items:center;font:700 13px/1 var(--font-head);letter-spacing:.05em;
+    }
+    h1,h2,h3{font-family:var(--font-head);margin:0;letter-spacing:-.02em}
+    h1{font-size:1.3rem}
+    .sub{color:var(--muted);font-size:.92rem}
     .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .card{background:#121a33;border:1px solid #2a3560;border-radius:14px;padding:14px}
-    main{padding:18px;display:grid;gap:18px}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-    .thumb{border:1px solid #2a3560;border-radius:12px;overflow:hidden;background:#0b1020}
-    .thumb img{width:100%;height:110px;object-fit:cover;display:block}
-    .cap{padding:8px;font-size:12px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .pill{border:1px solid #2a3560;background:#0b1020;padding:8px 10px;border-radius:999px;color:#e8eefc}
-    table{width:100%;border-collapse:collapse;font-size:13px}
-    th,td{border-bottom:1px solid #2a3560;padding:8px;text-align:left;vertical-align:top}
-    .muted{opacity:.75}
-    video{width:100%;max-height:320px;border-radius:12px;border:1px solid #2a3560;background:#000}
+    .pill{
+      border:1px solid var(--line);background:#1f2930;color:var(--ink);text-decoration:none;
+      border-radius:999px;padding:8px 14px;font-weight:600;font-size:.9rem;
+    }
+    .pill.active{background:var(--accent);border-color:var(--accent);color:#fff}
+    .pill:hover{filter:brightness(.97)}
+    .hero{
+      margin:14px 0 18px;padding:20px;border:1px solid var(--line);border-radius:18px;
+      background:#182026;
+      display:grid;grid-template-columns:1.5fr 1fr;gap:18px;
+      animation:rise .5s ease both;
+    }
+    .hero p{margin:8px 0 0;line-height:1.45;color:var(--muted)}
+    .stat-grid{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:10px}
+    .stat{
+      border:1px solid var(--line);background:#151c21;border-radius:12px;padding:12px;
+    }
+    .stat small{color:var(--muted)}
+    .stat strong{display:block;font-size:1.25rem;font-family:var(--font-head);margin-top:3px}
+    .layout{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
+    .card{
+      border:1px solid var(--line);background:var(--card);border-radius:16px;padding:14px;
+      animation:rise .55s ease both;
+    }
+    .card h3{font-size:1.03rem;margin-bottom:12px}
+    .system-grid{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px}
+    .gallery{
+      display:grid;grid-template-columns:repeat(auto-fill,minmax(154px,1fr));gap:10px;
+    }
+    .thumb{
+      border:1px solid var(--line);border-radius:12px;background:#151c21;overflow:hidden;
+      transition:transform .22s ease, box-shadow .22s ease;
+    }
+    .thumb:hover{transform:translateY(-2px);box-shadow:0 9px 18px rgba(31,35,41,.12)}
+    .thumb img{display:block;width:100%;height:116px;object-fit:cover;background:#11161a}
+    .cap{
+      padding:8px 9px;font-size:.75rem;color:var(--muted);font-family:var(--font-mono);
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    }
+    video{width:100%;border-radius:12px;background:#000;border:1px solid var(--line)}
+    .video-list{display:grid;gap:8px;margin-top:10px}
+    .video-item{
+      border:1px solid var(--line);border-radius:10px;background:#151c21;padding:9px;
+      display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.85rem;
+    }
+    .video-item button{
+      border:0;background:var(--accent-soft);color:#dff5f3;border-radius:999px;
+      padding:6px 10px;cursor:pointer;font-weight:700
+    }
+    table{width:100%;border-collapse:collapse;font-size:.86rem}
+    th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+    th{font-family:var(--font-head);font-size:.8rem;letter-spacing:.04em;text-transform:uppercase}
+    .muted{color:var(--muted)}
+    .alert{color:var(--alert);font-weight:700}
+    @keyframes rise{
+      from{opacity:0;transform:translateY(8px)}
+      to{opacity:1;transform:translateY(0)}
+    }
+    @media (max-width:930px){
+      .hero{grid-template-columns:1fr}
+      .stat-grid{grid-template-columns:repeat(2,minmax(120px,1fr))}
+      .system-grid{grid-template-columns:repeat(2,minmax(120px,1fr))}
+      .layout{grid-template-columns:1fr}
+    }
   </style>
 </head>
 <body>
-<header>
-  <div class="row">
-    <strong>SSS Portal</strong>
-    <span class="muted">Dashboard</span>
-    <a class="pill" href="/archive">Archive</a>
-  </div>
-  <div class="row">
-    <a class="pill" href="/logout">Logout</a>
-  </div>
-</header>
-
-<main>
-  Today's Footage
-    <div class="card muted">No data days found under the data directory.</div>
-  Summary
-    <div class="card">
-      <div class="row" style="justify-content:space-between;">
+  <main class="shell">
+    <header class="top">
+      <div class="brand">
+        <div class="logo">SSS</div>
         <div>
-          <h2 style="margin:0;">Today: 0 events</h2>
-          <div class="muted">
-            Events: 0 • Images: 0 • Videos: 0
-            <div class="muted">
-            Uptime: 0 min • Storage Left: 0% (0 MiB)  • Temp: 0 C
-          </div>
-        </div>
-        <div class="row">
-          <a class="pill" href="/day/{{ summary.day }}">Open Day</a>
-          <a class="pill" href="/download/day/{{ summary.day }}.zip">Download All</a>
-          <a class="pill" href="/download/day/{{ summary.day }}/images.zip">Images</a>
-          <a class="pill" href="/download/day/{{ summary.day }}/videos.zip">Videos</a>
-          <a class="pill" href="/download/day/{{ summary.day }}/logs.zip">Logs</a>
+          <h1>Substation Squirrel Sleuths</h1>
+          <div class="sub">Pre-Integration Demo</div>
         </div>
       </div>
-    </div>
+      <nav class="row">
+        <a class="pill active" href="dashboard.html">Dashboard</a>
+        <a class="pill" href="archive.html">Archive</a>
+      </nav>
+    </header>
 
-    <div class="card">
-      <h3 style="margin-top:0;">Latest Images</h3>
-      
-        
-        <div class="grid">
+    <section class="hero">
+      <div>
+        <h2 id="dayTitle">Daily Snapshot</h2>
+        <p>
           
-            <div class="thumb">
-              <a href="/data/{{ day }}/images/{{ f }}" target="_blank">
-                <img src="/data/{{ day }}/images/{{ f }}" loading="lazy"/>
-              </a>
-              <div class="cap">sampleimage.jpg</div>
-            </div>
-          
-        </div>
-      
-    </div>
+        </p>
+      </div>
+      <div class="stat-grid">
+        <div class="stat"><small>Events</small><strong id="eventsCount">0</strong></div>
+        <div class="stat"><small>Images</small><strong id="imagesCount">0</strong></div>
+        <div class="stat"><small>Videos</small><strong id="videosCount">0</strong></div>
+      </div>
+    </section>
 
-    <div class="card">
-      <h3 style="margin-top:0;">Latest Videos</h3>
-      {% if videos_preview|length == 0 %}
-        <div class="muted">No videos.</div>
-      {% else %}
-        {% for v in videos_preview %}
-          <div style="margin-bottom:14px;">
-            <div class="row" style="justify-content:space-between;">
-              <strong>{{ v }}</strong>
-              <a href="/data/{{ day }}/videos/{{ v }}" download>Download</a>
-            </div>
-            <video controls preload="metadata">
-              <source src="/data/{{ day }}/videos/{{ v }}">
-            </video>
-          </div>
-        {% endfor %}
-      {% endif %}
-    </div>
+    <section class="card" style="margin-bottom:16px;">
+      <h3>System Stats</h3>
+      <div class="system-grid">
+        <div class="stat"><small>Uptime</small><strong id="uptimeStat">0h</strong></div>
+        <div class="stat"><small>Storage Free</small><strong id="storageStat">0%</strong></div>
+        <div class="stat"><small>GPU Temp</small><strong id="tempStat">0 C</strong></div>
+        <div class="stat"><small>System Status</small><strong id="cameraStat">unknown</strong></div>
+      </div>
+    </section>
 
-    <div class="card">
-      <h3 style="margin-top:0;">Recent Logs</h3>
-      {% if logs|length == 0 %}
-        <div class="muted">No logs found (detections.jsonl missing/empty).</div>
-      {% else %}
-        <div style="overflow:auto;">
-          <table>
-            <thead><tr><th style="min-width:170px;">ts</th><th style="min-width:140px;">event</th><th>details</th></tr></thead>
-            <tbody>
-              {% for row in logs|reverse %}
-                <tr>
-                  <td class="muted">{{ row.get("ts","") }}</td>
-                  <td>{{ row.get("event","") }}</td>
-                  <td class="muted"><code style="white-space:pre-wrap;">{{ row }}</code></td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      {% endif %}
-    </div>
-  {% endif %}
-</main>
+    <section class="layout">
+      <div class="card">
+        <h3>Latest Captures</h3>
+        <div id="imageGrid" class="gallery"></div>
+      </div>
+
+      <div class="card">
+        <h3>Video Review</h3>
+        <video id="mainVideo" controls preload="metadata"></video>
+        <div id="videoList" class="video-list"></div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:16px;">
+      <h3>Recent Detection Log</h3>
+      <div style="overflow:auto;">
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Event</th></tr>
+          </thead>
+          <tbody id="logRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const demoDay = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "long",
+  day: "numeric"
+}).format(new Date());
+    const images = [
+      { src: "assets/demo/images/squirrel-track-1.jpg", label: "squirrel-track-1.jpg" },
+    
+    ];
+    const videos = [
+      { src: "assets/demo/videos/tracking-demo-1.mp4", label: "TrackingDemo-1" },
+      { src: "assets/demo/videos/Heatmap Demo-1.mp4", label: "HeatmapDemo-2" },
+      { src: "assets/demo/videos/tracking-demo-3.mp4", label: "TrackingDemo-3" }
+    ];
+    const logs = [
+      { ts: "2026-03-05 08:14:01", event: "detection" },
+      { ts: "2026-03-05 09:21:16", event: "tracker" },
+      { ts: "2026-03-05 10:44:09", event: "heatmap" },
+      { ts: "2026-03-05 12:05:33", event: "detection" },
+      { ts: "2026-03-05 13:17:48", event: "system" },
+      { ts: "2026-03-05 14:09:21", event: "alert" }
+    ];
+    const systemStats = {
+      uptime: "13h 12m",
+      storageFree: "96% - 972.8 GiB",
+      gpuTemp: "58 C",
+      cameraHealth: "STANDBY"
+    };
+
+    document.getElementById("dayTitle").textContent = "Daily Snapshot - " + demoDay;
+    document.getElementById("eventsCount").textContent = logs.length;
+    document.getElementById("imagesCount").textContent = images.length;
+    document.getElementById("videosCount").textContent = videos.length;
+    document.getElementById("uptimeStat").textContent = systemStats.uptime;
+    document.getElementById("storageStat").textContent = systemStats.storageFree;
+    document.getElementById("tempStat").textContent = systemStats.gpuTemp;
+    document.getElementById("cameraStat").textContent = systemStats.cameraHealth;
+
+    const imageGrid = document.getElementById("imageGrid");
+    images.forEach((item) => {
+      const frame = document.createElement("article");
+      frame.className = "thumb";
+      frame.innerHTML = `<img src="${item.src}" alt="${item.label}" loading="lazy"><div class="cap">${item.label}</div>`;
+      imageGrid.appendChild(frame);
+    });
+
+    const mainVideo = document.getElementById("mainVideo");
+    const videoList = document.getElementById("videoList");
+    mainVideo.src = videos[0].src;
+    videos.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "video-item";
+      row.innerHTML = `<span class="muted">${item.label}</span><button type="button">Load</button>`;
+      row.querySelector("button").addEventListener("click", () => {
+        mainVideo.src = item.src;
+        mainVideo.play().catch(() => {});
+      });
+      videoList.appendChild(row);
+    });
+
+    const logRows = document.getElementById("logRows");
+    logs.forEach((entry) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="muted">${entry.ts}</td><td>${entry.event}</td>`;
+      logRows.appendChild(tr);
+    });
+  </script>
 </body>
 </html>
