@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Substation Squirrel Sleuths | Day Detail</title>
+  <style>
+    :root{
+      --bg:#11161a;
+      --ink:#e7edf2;
+      --muted:#9aa7b4;
+      --card:#1a2228;
+      --line:#2c3943;
+      --accent:#0f3f76;
+      --accent-soft:#1f3d43;
+      --font-head:"Space Grotesk","Segoe UI",sans-serif;
+      --font-body:"IBM Plex Sans","Segoe UI",sans-serif;
+      --font-mono:"IBM Plex Mono","Cascadia Mono",monospace;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;color:var(--ink);font-family:var(--font-body);background:var(--bg)}
+    .shell{max-width:1180px;margin:0 auto;padding:22px 18px 44px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+    .brand{display:flex;align-items:center;gap:12px}
+    .logo{
+      width:38px;height:38px;border-radius:12px;background:var(--accent);color:#fff;
+      display:grid;place-items:center;font:700 13px/1 var(--font-head);letter-spacing:.05em;
+    }
+    h1,h2,h3{font-family:var(--font-head);margin:0;letter-spacing:-.02em}
+    .sub{color:var(--muted);font-size:.92rem}
+    .pill{
+      border:1px solid var(--line);background:#1f2930;color:var(--ink);text-decoration:none;
+      border-radius:999px;padding:8px 14px;font-weight:600;font-size:.9rem;
+    }
+    .pill.active{background:var(--accent);border-color:var(--accent);color:#fff}
+    .hero{margin:14px 0 18px;padding:16px;border:1px solid var(--line);border-radius:16px;background:#182026}
+    .stats{margin-top:10px;display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:10px}
+    .stat{border:1px solid var(--line);background:#151c21;border-radius:12px;padding:10px}
+    .stat small{color:var(--muted)}
+    .stat strong{display:block;font-family:var(--font-head);font-size:1.1rem}
+    .layout{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .card{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:14px}
+    .card h3{font-size:1.03rem;margin-bottom:12px}
+    table{width:100%;border-collapse:collapse;font-size:.9rem}
+    th,td{padding:9px;border-bottom:1px solid var(--line);text-align:left}
+    th{font-family:var(--font-head);font-size:.8rem;letter-spacing:.04em;text-transform:uppercase}
+    .muted{color:var(--muted)}
+    .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+    .thumb{border:1px solid var(--line);background:#151c21;border-radius:10px;overflow:hidden}
+    .thumb img{width:100%;height:100px;object-fit:cover;display:block}
+    .thumb div{padding:7px;font-size:.72rem;color:var(--muted);font-family:var(--font-mono)}
+    video{width:100%;border-radius:12px;border:1px solid var(--line);background:#000}
+    .video-list{display:grid;gap:8px;margin-top:10px}
+    .video-item{display:flex;justify-content:space-between;gap:8px;align-items:center;border:1px solid var(--line);background:#151c21;border-radius:10px;padding:8px}
+    .video-item button{border:0;background:var(--accent-soft);color:#dff5f3;border-radius:999px;padding:6px 10px;cursor:pointer;font-weight:700}
+    .empty{border:1px dashed var(--line);border-radius:12px;padding:14px;color:var(--muted);background:#151c21}
+    @media (max-width:930px){
+      .layout{grid-template-columns:1fr}
+      .stats{grid-template-columns:repeat(2,minmax(120px,1fr))}
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div class="brand">
+        <div class="logo">SSS</div>
+        <div>
+          <h1>Substation Squirrel Sleuths</h1>
+          <div class="sub">Daily event detail view</div>
+        </div>
+      </div>
+      <div>
+        <a class="pill" href="archive.html">Back To Archive</a>
+      </div>
+    </header>
+
+    <section class="hero">
+      <h2 id="dayTitle">Day Detail</h2>
+      <div class="stats">
+        <div class="stat"><small>Events</small><strong id="eventsCount">0</strong></div>
+        <div class="stat"><small>Images</small><strong id="imagesCount">0</strong></div>
+        <div class="stat"><small>Videos</small><strong id="videosCount">0</strong></div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <section class="card">
+        <h3>Event Timeline</h3>
+        <div id="eventsWrap" style="overflow:auto;">
+          <table>
+            <thead><tr><th>Time</th><th>Event</th></tr></thead>
+            <tbody id="eventRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Video Clips</h3>
+        <div id="videoWrap"></div>
+      </section>
+    </section>
+
+    <section class="card" style="margin-top:16px;">
+      <h3>Image Captures</h3>
+      <div id="imageGrid" class="gallery"></div>
+    </section>
+  </main>
+
+  <script src="demo-data.js"></script>
+  <script>
+    const days = (window.DEMO_DATA && window.DEMO_DATA.days) || [];
+    const selectedDay = new URLSearchParams(window.location.search).get("day");
+    const dayData = days.find((d) => d.day === selectedDay);
+
+    const dayTitle = document.getElementById("dayTitle");
+    const eventsCount = document.getElementById("eventsCount");
+    const imagesCount = document.getElementById("imagesCount");
+    const videosCount = document.getElementById("videosCount");
+    const eventRows = document.getElementById("eventRows");
+    const imageGrid = document.getElementById("imageGrid");
+    const videoWrap = document.getElementById("videoWrap");
+
+    if (!dayData) {
+      dayTitle.textContent = "Day Detail - Not Found";
+      document.getElementById("eventsWrap").innerHTML = "<div class=\"empty\">No data found for that day. Open this page from Archive.</div>";
+      videoWrap.innerHTML = "<div class=\"empty\">No videos available.</div>";
+      imageGrid.innerHTML = "<div class=\"empty\">No images available.</div>";
+    } else {
+      dayTitle.textContent = `Day Detail - ${dayData.day}`;
+      eventsCount.textContent = dayData.events.length;
+      imagesCount.textContent = dayData.images.length;
+      videosCount.textContent = dayData.videos.length;
+
+      dayData.events.forEach((entry) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td class="muted">${entry.ts}</td><td>${entry.event}</td>`;
+        eventRows.appendChild(tr);
+      });
+
+      dayData.images.forEach((src) => {
+        const name = src.split("/").pop();
+        const tile = document.createElement("article");
+        tile.className = "thumb";
+        tile.innerHTML = `<img src="${src}" alt="${name}" loading="lazy"><div>${name}</div>`;
+        imageGrid.appendChild(tile);
+      });
+
+      if (dayData.videos.length === 0) {
+        videoWrap.innerHTML = "<div class=\"empty\">No videos available for this day.</div>";
+      } else {
+        videoWrap.innerHTML = `
+          <video id="mainVideo" controls preload="metadata"></video>
+          <div id="videoList" class="video-list"></div>
+        `;
+        const mainVideo = document.getElementById("mainVideo");
+        const videoList = document.getElementById("videoList");
+        mainVideo.src = dayData.videos[0];
+        dayData.videos.forEach((src) => {
+          const label = src.split("/").pop();
+          const row = document.createElement("div");
+          row.className = "video-item";
+          row.innerHTML = `<span class="muted">${label}</span><button type="button">Load</button>`;
+          row.querySelector("button").addEventListener("click", () => {
+            mainVideo.src = src;
+            mainVideo.play().catch(() => {});
+          });
+          videoList.appendChild(row);
+        });
+      }
+    }
+  </script>
+</body>
+</html>
+
