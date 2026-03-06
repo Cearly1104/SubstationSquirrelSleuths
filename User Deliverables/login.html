@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Substation Squirrel Sleuths | Login</title>
+  <style>
+    :root{
+      --bg:#11161a;
+      --ink:#e7edf2;
+      --muted:#9aa7b4;
+      --card:#1a2228;
+      --line:#2c3943;
+      --accent:#0f3f76;
+      --accent-soft:#1f3d43;
+      --font-head:"Space Grotesk","Segoe UI",sans-serif;
+      --font-body:"IBM Plex Sans","Segoe UI",sans-serif;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);
+      min-height:100vh;display:grid;place-items:center;padding:18px;
+    }
+    .card{
+      width:min(440px,100%);background:var(--card);border:1px solid var(--line);
+      border-radius:18px;padding:20px;
+    }
+    .brand{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    .logo{
+      width:40px;height:40px;border-radius:12px;background:var(--accent);color:#fff;
+      display:grid;place-items:center;font:700 13px/1 var(--font-head);letter-spacing:.05em;
+    }
+    h1{margin:0;font:700 1.2rem/1.2 var(--font-head)}
+    p{margin:3px 0 0;color:var(--muted);font-size:.9rem}
+    form{display:grid;gap:10px;margin-top:14px}
+    label{font-size:.85rem;color:var(--muted)}
+    input{
+      width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+      background:#151c21;color:var(--ink);outline:none;
+    }
+    input:focus{border-color:var(--accent)}
+    button{
+      margin-top:4px;border:0;border-radius:10px;padding:10px 12px;cursor:pointer;
+      background:var(--accent);color:#fff;font-weight:700;
+    }
+    .note{margin-top:10px;color:var(--muted);font-size:.8rem}
+    .err{display:none;margin-top:6px;color:#fca5a5;font-size:.85rem}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <div class="logo">SSS</div>
+      <div>
+        <h1>Substation Squirrel Sleuths</h1>
+        <p>Secure Login</p>
+      </div>
+    </div>
+
+    <form id="loginForm">
+      <div>
+        <label for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" required>
+      </div>
+      <div>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit">Sign In</button>
+      <div id="errorMsg" class="err">Invalid username or password.</div>
+    </form>
+
+    <div class="note">Accounts are manually managed in <code>auth.js</code>.</div>
+  </main>
+
+  <script src="auth.js"></script>
+  <script>
+    if (Auth.isAuthenticated()) {
+      const current = new URLSearchParams(window.location.search).get("next") || "dashboard.html";
+      window.location.href = current;
+    }
+
+    const form = document.getElementById("loginForm");
+    const err = document.getElementById("errorMsg");
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      err.style.display = "none";
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+      if (!Auth.login(username, password)) {
+        err.style.display = "block";
+        return;
+      }
+      const next = new URLSearchParams(window.location.search).get("next") || "dashboard.html";
+      window.location.href = next;
+    });
+  </script>
+</body>
+</html>
