@@ -1,0 +1,17 @@
+[Unit]
+Description=SSS User Deliverables Flask App
+After=network.target
+
+[Service]
+Type=simple
+User=sss
+WorkingDirectory=/home/sss/user-deliverables
+Environment=SSS_DATA_DIR=/home/sss/data
+Environment=SSS_SECRET_KEY=CHANGE_ME_TO_A_RANDOM_VALUE
+Environment=SSS_ACCOUNTS_FILE=/home/sss/user-deliverables/accounts.json
+ExecStart=/home/sss/user-deliverables/venv/bin/python app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
