@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Archive{% endblock %}
+{% block extra_style %}
+.panel{
+  margin:14px 0 18px;padding:16px;border:1px solid var(--line);border-radius:18px;
+  background:#182026;
+}
+.meta{margin-top:8px;display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px}
+.chip{border:1px solid var(--line);background:#151c21;border-radius:12px;padding:10px}
+.chip small{color:var(--muted)}
+.chip strong{display:block;margin-top:2px;font-size:1.1rem;font-family:var(--font-head)}
+.action{display:flex;gap:8px;flex-wrap:wrap}
+@media (max-width:900px){.meta{grid-template-columns:repeat(2,minmax(120px,1fr))}}
+{% endblock %}
+
+{% block body %}
+<main class="shell">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">SSS</div>
+      <div>
+        <h1>Substation Squirrel Sleuths</h1>
+        <div class="sub">Archive and playback catalog</div>
+      </div>
+    </div>
+    <nav class="row">
+      <a class="pill" href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a class="pill active" href="{{ url_for('archive') }}">Archive</a>
+      <a class="pill" href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+  </header>
+
+  {% set total_events = days | sum(attribute='events', default=[]) | length if days else 0 %}
+  {% set te = namespace(val=0) %}
+  {% set ti = namespace(val=0) %}
+  {% set tv = namespace(val=0) %}
+  {% for d in days %}
+    {% set te.val = te.val + d.events | length %}
+    {% set ti.val = ti.val + d.images | length %}
+    {% set tv.val = tv.val + d.videos | length %}
+  {% endfor %}
+
+  <section class="panel">
+    <h2>Archive Overview</h2>
+    <div class="meta">
+      <div class="chip"><small>Days Indexed</small><strong>{{ days | length }}</strong></div>
+      <div class="chip"><small>Total Events</small><strong>{{ te.val }}</strong></div>
+      <div class="chip"><small>Total Images</small><strong>{{ ti.val }}</strong></div>
+      <div class="chip"><small>Total Videos</small><strong>{{ tv.val }}</strong></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:14px;">
+    <h3>Daily Runs</h3>
+    <div style="overflow:auto;">
+      <table>
+        <thead><tr><th>Day</th><th>Events</th><th>Images</th><th>Videos</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for d in days %}
+          <tr>
+            <td><strong>{{ d.day }}</strong></td>
+            <td>{{ d.events | length }}</td>
+            <td>{{ d.images | length }}</td>
+            <td>{{ d.videos | length }}</td>
+            <td>
+              <div class="action">
+                <a class="pill" href="{{ url_for('day_detail', day_id=d.day) }}">Open</a>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not days %}
+          <tr><td colspan="5" class="muted">No archived days yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Preview Stills</h3>
+    <div class="gallery">
+      {% for d in days %}
+        {% for img in d.images[:2] %}
+        <article class="thumb">
+          <img src="{{ url_for('serve_image', day_id=d.day, filename=img) }}" alt="{{ img }}" loading="lazy">
+          <div class="cap">{{ img }}</div>
+        </article>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </section>
+</main>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Day Detail — {{ day.day }}{% endblock %}
+{% block extra_style %}
+.hero{margin:14px 0 18px;padding:16px;border:1px solid var(--line);border-radius:16px;background:#182026}
+.stats{margin-top:10px;display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:10px}
+.layout{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:930px){
+  .layout{grid-template-columns:1fr}
+  .stats{grid-template-columns:repeat(2,minmax(120px,1fr))}
+}
+{% endblock %}
+
+{% block body %}
+<main class="shell">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">SSS</div>
+      <div>
+        <h1>Substation Squirrel Sleuths</h1>
+        <div class="sub">Daily event detail view</div>
+      </div>
+    </div>
+    <div>
+      <a class="pill" href="{{ url_for('archive') }}">Back To Archive</a>
+      <a class="pill" href="{{ url_for('logout') }}">Logout</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h2>Day Detail &mdash; {{ day.day }}</h2>
+    <div class="stats">
+      <div class="stat"><small>Events</small><strong>{{ day.events | length }}</strong></div>
+      <div class="stat"><small>Images</small><strong>{{ day.images | length }}</strong></div>
+      <div class="stat"><small>Videos</small><strong>{{ day.videos | length }}</strong></div>
+    </div>
+  </section>
+
+  <section class="layout">
+    <section class="card">
+      <h3>Event Timeline</h3>
+      <div style="overflow:auto;">
+        <table>
+          <thead><tr><th>Time</th><th>Event</th></tr></thead>
+          <tbody>
+            {% for entry in day.events %}
+            <tr>
+              <td class="muted">{{ entry.ts }}</td>
+              <td>{{ entry.event }}</td>
+            </tr>
+            {% endfor %}
+            {% if not day.events %}
+            <tr><td colspan="2" class="muted">No events.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Video Clips</h3>
+      {% if day.videos %}
+      <video id="mainVideo" controls preload="metadata"
+             src="{{ url_for('serve_video', day_id=day.day, filename=day.videos[0]) }}"></video>
+      <div class="video-list">
+        {% for vid in day.videos %}
+        <div class="video-item">
+          <span class="muted">{{ vid }}</span>
+          <button type="button" onclick="document.getElementById('mainVideo').src='{{ url_for('serve_video', day_id=day.day, filename=vid) }}'; document.getElementById('mainVideo').play();">Load</button>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty">No videos available for this day.</div>
+      {% endif %}
+    </section>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <h3>Image Captures</h3>
+    {% if day.images %}
+    <div class="gallery">
+      {% for img in day.images %}
+      <article class="thumb">
+        <img src="{{ url_for('serve_image', day_id=day.day, filename=img) }}" alt="{{ img }}" loading="lazy">
+        <div class="cap">{{ img }}</div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">No images available for this day.</div>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}

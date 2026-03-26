@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block extra_style %}
+.hero{
+  margin:14px 0 18px;padding:20px;border:1px solid var(--line);border-radius:18px;
+  background:#182026;display:grid;grid-template-columns:1.5fr 1fr;gap:18px;
+  animation:rise .5s ease both;
+}
+.hero p{margin:8px 0 0;line-height:1.45;color:var(--muted)}
+.layout{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
+@media (max-width:930px){
+  .hero{grid-template-columns:1fr}
+  .layout{grid-template-columns:1fr}
+}
+.feed-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.feed-cell h4{margin:0 0 6px;font-size:.85rem;color:var(--muted)}
+.feed-cell img{width:100%;border-radius:8px;background:#111;aspect-ratio:16/9;object-fit:cover}
+@media (max-width:930px){.feed-grid{grid-template-columns:1fr}}
+{% endblock %}
+
+{% block body %}
+<main class="shell">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">SSS</div>
+      <div>
+        <h1>Substation Squirrel Sleuths</h1>
+        <div class="sub">Field Unit Dashboard</div>
+      </div>
+    </div>
+    <nav class="row">
+      <a class="pill active" href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a class="pill" href="{{ url_for('archive') }}">Archive</a>
+      <a class="pill" href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+  </header>
+
+  {# ── Daily Snapshot ── #}
+  <section class="hero">
+    <div>
+      <h2>Daily Snapshot &mdash; {{ today }}</h2>
+      <p>
+        {% if today_data %}
+          {{ today_data.events | length }} events detected today.
+          {{ today_data.images | length }} images and {{ today_data.videos | length }} video clips captured.
+        {% else %}
+          No detection data recorded for today yet. The analysis subsystem may still be initializing.
+        {% endif %}
+      </p>
+    </div>
+    <div class="stat-grid">
+      <div class="stat"><small>Events</small><strong>{{ today_data.events | length if today_data else 0 }}</strong></div>
+      <div class="stat"><small>Images</small><strong>{{ today_data.images | length if today_data else 0 }}</strong></div>
+      <div class="stat"><small>Videos</small><strong>{{ today_data.videos | length if today_data else 0 }}</strong></div>
+    </div>
+  </section>
+
+  {# ── System Stats ── #}
+  <section class="card" style="margin-bottom:16px;">
+    <h3>System Stats</h3>
+    <div class="system-grid">
+      <div class="stat"><small>Uptime</small><strong>{{ stats.uptime }}</strong></div>
+      <div class="stat"><small>Storage Free</small><strong>{{ stats.storage_free }}</strong></div>
+      <div class="stat"><small>GPU Temp</small><strong>{{ stats.gpu_temp }}</strong></div>
+      <div class="stat"><small>System Status</small><strong>{{ stats.status }}</strong></div>
+    </div>
+  </section>
+
+  {# ── Live Camera Feeds ── #}
+  <section class="card" style="margin-bottom:16px;">
+    <h3>Live Camera Feeds</h3>
+    <div class="feed-grid">
+      <div class="feed-cell">
+        <h4>Camera 0</h4>
+        <img src="{{ url_for('live_feed', cam_id='cam0') }}" alt="Camera 0 Feed">
+      </div>
+      <div class="feed-cell">
+        <h4>Camera 1</h4>
+        <img src="{{ url_for('live_feed', cam_id='cam1') }}" alt="Camera 1 Feed">
+      </div>
+      <div class="feed-cell">
+        <h4>Camera 2</h4>
+        <img src="{{ url_for('live_feed', cam_id='cam2') }}" alt="Camera 2 Feed">
+      </div>
+    </div>
+  </section>
+
+  {# ── Media ── #}
+  <section class="layout">
+    <div class="card">
+      <h3>Latest Captures</h3>
+      {% if today_data and today_data.images %}
+      <div class="gallery">
+        {% for img in today_data.images %}
+        <article class="thumb">
+          <img src="{{ url_for('serve_image', day_id=today_data.day, filename=img) }}" alt="{{ img }}" loading="lazy">
+          <div class="cap">{{ img }}</div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty">No images captured today.</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3>Video Review</h3>
+      {% if today_data and today_data.videos %}
+      <video id="mainVideo" controls preload="metadata"
+             src="{{ url_for('serve_video', day_id=today_data.day, filename=today_data.videos[0]) }}"></video>
+      <div class="video-list">
+        {% for vid in today_data.videos %}
+        <div class="video-item">
+          <span class="muted">{{ vid }}</span>
+          <button type="button" onclick="document.getElementById('mainVideo').src='{{ url_for('serve_video', day_id=today_data.day, filename=vid) }}'; document.getElementById('mainVideo').play();">Load</button>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty">No video clips captured today.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ── Detection Log ── #}
+  <section class="card" style="margin-top:16px;">
+    <h3>Recent Detection Log</h3>
+    <div style="overflow:auto;">
+      <table>
+        <thead><tr><th>Time</th><th>Event</th></tr></thead>
+        <tbody>
+          {% if today_data %}
+            {% for entry in today_data.events %}
+            <tr>
+              <td class="muted">{{ entry.ts }}</td>
+              <td>{{ entry.event }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="2" class="muted">No events recorded today.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+{% endblock %}
