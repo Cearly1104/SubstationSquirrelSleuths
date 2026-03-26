@@ -1,9 +1,11 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Substation Squirrel Sleuths | Day Detail</title>
+  <script src="auth.js"></script>
+  <script>Auth.requireAuth();</script>
   <style>
     :root{
       --bg:#11161a;
@@ -72,6 +74,7 @@
       </div>
       <div>
         <a class="pill" href="archive.html">Back To Archive</a>
+        <a class="pill" href="#" id="logoutLink">Logout</a>
       </div>
     </header>
 
@@ -169,7 +172,11 @@
         });
       }
     }
+
+    document.getElementById("logoutLink").addEventListener("click", (event) => {
+      event.preventDefault();
+      Auth.logout();
+    });
   </script>
 </body>
 </html>
-

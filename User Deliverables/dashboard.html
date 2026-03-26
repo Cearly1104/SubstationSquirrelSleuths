@@ -1,9 +1,11 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Substation Squirrel Sleuths | Dashboard</title>
+  <script src="auth.js"></script>
+  <script>Auth.requireAuth();</script>
   <style>
     :root{
       --bg:#11161a;
@@ -118,6 +120,7 @@
       <nav class="row">
         <a class="pill active" href="dashboard.html">Dashboard</a>
         <a class="pill" href="archive.html">Archive</a>
+        <a class="pill" href="#" id="logoutLink">Logout</a>
       </nav>
     </header>
 
@@ -185,7 +188,7 @@
     const videos = [
       { src: "assets/demo/videos/tracking-demo-1.mp4", label: "TrackingDemo-1" },
       { src: "assets/demo/videos/Heatmap Demo-1.mp4", label: "HeatmapDemo-2" },
-      { src: "assets/demo/videos/tracking-demo-3.mp4", label: "TrackingDemo-3" }
+      { src: "assets/demo/videos/Homography_Demo.mp4", label: "GroundPlaneDemo-3" }
     ];
     const logs = [
       { ts: "2026-03-05 08:14:01", event: "detection" },
@@ -238,6 +241,11 @@
       const tr = document.createElement("tr");
       tr.innerHTML = `<td class="muted">${entry.ts}</td><td>${entry.event}</td>`;
       logRows.appendChild(tr);
+    });
+
+    document.getElementById("logoutLink").addEventListener("click", (event) => {
+      event.preventDefault();
+      Auth.logout();
     });
   </script>
 </body>

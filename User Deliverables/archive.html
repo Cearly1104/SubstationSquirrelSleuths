@@ -1,9 +1,11 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Substation Squirrel Sleuths | Archive</title>
+  <script src="auth.js"></script>
+  <script>Auth.requireAuth();</script>
   <style>
     :root{
       --bg:#11161a;
@@ -89,6 +91,7 @@
       <nav class="row">
         <a class="pill" href="dashboard.html">Dashboard</a>
         <a class="pill active" href="archive.html">Archive</a>
+        <a class="pill" href="#" id="logoutLink">Logout</a>
       </nav>
     </header>
 
@@ -172,6 +175,11 @@
       card.className = "shot";
       card.innerHTML = `<img src="${item.src}" alt="${item.name}" loading="lazy"><div>${item.name}</div>`;
       previewGrid.appendChild(card);
+    });
+
+    document.getElementById("logoutLink").addEventListener("click", (event) => {
+      event.preventDefault();
+      Auth.logout();
     });
   </script>
 </body>
