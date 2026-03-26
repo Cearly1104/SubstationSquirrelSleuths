@@ -10,9 +10,9 @@
 #   sudo bash setup-wifi-ap.sh [OPTIONS]
 #
 # Options (override via environment or args):
-#   WIFI_IFACE   — wireless interface name        (default: wlan0)
-#   AP_SSID      — network name                   (default: SSS-Field)
-#   AP_PASSWORD  — WPA2 passphrase (>=8 chars)    (default: squirrel2024)
+#   WIFI_IFACE   — wireless interface name        (default: wlP1p1s0)
+#   AP_SSID      — network name                   (default: JetsonAP)
+#   AP_PASSWORD  — WPA2 passphrase (>=8 chars)    (default: SubstationSquirrelSleuths)
 #   AP_BAND      — wifi band: bg (2.4 GHz) or a   (default: bg)
 #   AP_CHANNEL   — channel number                  (default: 6)
 #   AP_IP        — static IP for the Jetson        (default: 10.42.0.1)
@@ -23,9 +23,9 @@
 set -euo pipefail
 
 # ── Defaults ────────────────────────────────────────────────────────────────
-WIFI_IFACE="${WIFI_IFACE:-wlan0}"
-AP_SSID="${AP_SSID:-SSS-Field}"
-AP_PASSWORD="${AP_PASSWORD:-squirrel2024}"
+WIFI_IFACE="${WIFI_IFACE:-wlP1p1s0}"
+AP_SSID="${AP_SSID:-JetsonAP}"
+AP_PASSWORD="${AP_PASSWORD:-SubstationSquirrelSleuths}"
 AP_BAND="${AP_BAND:-bg}"
 AP_CHANNEL="${AP_CHANNEL:-6}"
 AP_IP="${AP_IP:-10.42.0.1}"
