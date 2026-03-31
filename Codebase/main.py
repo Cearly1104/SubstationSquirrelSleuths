@@ -81,7 +81,7 @@ if __name__ == "__main__":
     # Start analysis worker thread (processes one video at a time, sequentially)
     analysis_thread = threading.Thread(
         target=analysis_worker,
-        args=(analysis_queue, analysis_dir, MODEL_PATH, SOURCE_POINTS),
+        args=(analysis_queue, results_dir, MODEL_PATH, SOURCE_POINTS),
         daemon=True,
     )
     analysis_thread.start()
