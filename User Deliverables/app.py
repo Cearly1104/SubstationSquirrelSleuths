@@ -81,26 +81,48 @@ def _read_json(path, default=None):
 def get_days():
     """Return a sorted list of day folders available in DATA_DIR.
 
-    Each day folder is expected to contain:
-      events.json   — list of {ts, event}
-      images/       — captured stills
-      videos/       — recorded clips
+    Each day folder contains event sub-folders named by timestamp
+    (e.g. ``13:12:11``).  Inside each event folder:
+      Images/   — captured stills
+      Videos/   — recorded clips
     """
     if not DATA_DIR.is_dir():
         return []
     days = []
     for entry in sorted(DATA_DIR.iterdir(), reverse=True):
         if entry.is_dir() and _looks_like_date(entry.name):
-            events = _read_json(entry / "events.json", [])
-            images = _list_media(entry / "images")
-            videos = _list_media(entry / "videos")
+            events = _collect_events(entry)
+            all_images = []
+            all_videos = []
+            for ev in events:
+                all_images.extend(
+                    {"file": f, "event": ev["ts"]} for f in ev["images"]
+                )
+                all_videos.extend(
+                    {"file": f, "event": ev["ts"]} for f in ev["videos"]
+                )
             days.append({
                 "day": entry.name,
                 "events": events,
+                "images": all_images,
+                "videos": all_videos,
+            })
+    return days
+
+
+def _collect_events(day_dir):
+    """Scan *day_dir* for timestamp sub-folders and return event dicts."""
+    events = []
+    for sub in sorted(day_dir.iterdir()):
+        if sub.is_dir() and not _looks_like_date(sub.name):
+            images = _list_media(sub / "Images") + _list_media(sub / "images")
+            videos = _list_media(sub / "Videos") + _list_media(sub / "videos")
+            events.append({
+                "ts": sub.name,
                 "images": images,
                 "videos": videos,
             })
-    return days
+    return events
 
 
 def _looks_like_date(name):
@@ -122,15 +144,40 @@ def _list_media(folder):
 
 
 def get_system_stats():
-    """Read system stats written by the analysis subsystem."""
-    stats_file = DATA_DIR / "system_stats.json"
-    defaults = {
+    """Read live system stats directly from the Jetson hardware."""
+    stats = {
         "uptime": "N/A",
         "storage_free": "N/A",
         "gpu_temp": "N/A",
         "status": "OFFLINE",
     }
-    return _read_json(stats_file, defaults)
+    # Uptime
+    try:
+        with open("/proc/uptime") as f:
+            secs = int(float(f.read().split()[0]))
+            h, m = divmod(secs // 60, 60)
+            stats["uptime"] = f"{h}h {m}m"
+    except Exception:
+        pass
+    # GPU temperature (thermal_zone1 = gpu-thermal on Orin Nano)
+    try:
+        with open("/sys/devices/virtual/thermal/thermal_zone1/temp") as f:
+            millideg = int(f.read().strip())
+            stats["gpu_temp"] = f"{millideg / 1000:.0f} °C"
+    except Exception:
+        pass
+    # Storage free
+    try:
+        st = os.statvfs("/")
+        free_gib = (st.f_bavail * st.f_frsize) / (1024 ** 3)
+        total_gib = (st.f_blocks * st.f_frsize) / (1024 ** 3)
+        pct_free = (st.f_bavail / st.f_blocks) * 100
+        stats["storage_free"] = f"{pct_free:.0f}% — {free_gib:.1f} GiB"
+    except Exception:
+        pass
+    # Status
+    stats["status"] = "ONLINE"
+    return stats
 
 
 # ---------------------------------------------------------------------------
@@ -207,22 +254,24 @@ def day_detail(day_id):
 # Routes — Serve media from the data directory
 # ---------------------------------------------------------------------------
 
-@app.route("/data/<day_id>/images/<filename>")
+@app.route("/data/<day_id>/<event_id>/images/<filename>")
 @login_required
-def serve_image(day_id, filename):
-    folder = DATA_DIR / day_id / "images"
-    if not folder.is_dir():
-        abort(404)
-    return send_from_directory(str(folder), filename)
+def serve_image(day_id, event_id, filename):
+    for name in ("Images", "images"):
+        folder = DATA_DIR / day_id / event_id / name
+        if folder.is_dir():
+            return send_from_directory(str(folder), filename)
+    abort(404)
 
 
-@app.route("/data/<day_id>/videos/<filename>")
+@app.route("/data/<day_id>/<event_id>/videos/<filename>")
 @login_required
-def serve_video(day_id, filename):
-    folder = DATA_DIR / day_id / "videos"
-    if not folder.is_dir():
-        abort(404)
-    return send_from_directory(str(folder), filename)
+def serve_video(day_id, event_id, filename):
+    for name in ("Videos", "videos"):
+        folder = DATA_DIR / day_id / event_id / name
+        if folder.is_dir():
+            return send_from_directory(str(folder), filename)
+    abort(404)
 
 
 @app.route("/demo/<path:filename>")
@@ -291,7 +340,8 @@ def live_feed(cam_id):
 def api_post_event():
     """Receive a detection event from the analysis subsystem.
 
-    Expected JSON body: {day: "YYYY-MM-DD", ts: "...", event: "detection"|...}
+    Expected JSON body: {day: "YYYY-MM-DD", ts: "HH:MM:SS"}
+    Creates the event folder structure:  data/<day>/<ts>/Images/  and  Videos/
     An API key is required via the X-API-Key header.
     """
     api_key = os.environ.get("SSS_API_KEY", "")
@@ -299,18 +349,14 @@ def api_post_event():
         return jsonify({"error": "unauthorized"}), 401
 
     payload = request.get_json(silent=True)
-    if not payload or "day" not in payload:
+    if not payload or "day" not in payload or "ts" not in payload:
         return jsonify({"error": "bad request"}), 400
 
     day = payload["day"]
-    day_dir = DATA_DIR / day
-    day_dir.mkdir(parents=True, exist_ok=True)
-
-    events_file = day_dir / "events.json"
-    events = _read_json(events_file, [])
-    events.append({"ts": payload.get("ts", ""), "event": payload.get("event", "unknown")})
-    with open(events_file, "w") as f:
-        json.dump(events, f, indent=2)
+    ts = payload["ts"]
+    event_dir = DATA_DIR / day / ts
+    (event_dir / "Images").mkdir(parents=True, exist_ok=True)
+    (event_dir / "Videos").mkdir(parents=True, exist_ok=True)
 
     return jsonify({"ok": True})
 
@@ -334,10 +380,59 @@ def api_post_stats():
     return jsonify({"ok": True})
 
 
+@app.route("/api/system-stats", methods=["GET"])
+@login_required
+def api_get_stats():
+    return jsonify(get_system_stats())
+
+
 @app.route("/api/days")
 @login_required
 def api_get_days():
     return jsonify(get_days())
+
+
+# ---------------------------------------------------------------------------
+# Captive portal detection — triggers automatic browser pop-up when a client
+# connects to JetsonAP.  Each OS probes a different URL to check for internet;
+# we intercept those probes and redirect to the dashboard.
+#
+# Requires dnsmasq on the Jetson to be configured with:
+#   address=/#/10.42.0.1
+# so that ALL DNS queries resolve to this device.
+# ---------------------------------------------------------------------------
+
+PORTAL_REDIRECT = "http://10.42.0.1:5000/"
+
+
+@app.route("/generate_204")          # Android / Chrome
+@app.route("/gen_204")               # Android (older)
+def captive_android():
+    return redirect(PORTAL_REDIRECT, 302)
+
+
+@app.route("/hotspot-detect.html")   # macOS / iOS
+@app.route("/library/test/success.html")
+def captive_apple():
+    # Apple expects either a redirect or a page that does NOT contain "Success"
+    return redirect(PORTAL_REDIRECT, 302)
+
+
+@app.route("/ncsi.txt")              # Windows — expects plain "Microsoft NCSI"
+def captive_windows_ncsi():
+    return redirect(PORTAL_REDIRECT, 302)
+
+
+@app.route("/connecttest.txt")       # Windows 10+
+@app.route("/redirect")
+def captive_windows():
+    return redirect(PORTAL_REDIRECT, 302)
+
+
+@app.route("/connectivity-check")    # Ubuntu / GNOME
+@app.route("/check_network_status.txt")  # Firefox
+def captive_linux():
+    return redirect(PORTAL_REDIRECT, 302)
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
 [
-  {"id": "cam0", "url": "rtsp://192.168.8.10:554/stream"},
+  {"id": "cam0", "url": "rtsp://admin:123456@10.0.0.11:554/profile2"},
   {"id": "cam1", "url": "rtsp://192.168.8.11:554/stream"}
 ]

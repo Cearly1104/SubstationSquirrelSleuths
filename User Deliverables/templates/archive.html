@@ -83,8 +83,8 @@
       {% for d in days %}
         {% for img in d.images[:2] %}
         <article class="thumb">
-          <img src="{{ url_for('serve_image', day_id=d.day, filename=img) }}" alt="{{ img }}" loading="lazy">
-          <div class="cap">{{ img }}</div>
+          <img src="{{ url_for('serve_image', day_id=d.day, event_id=img.event, filename=img.file) }}" alt="{{ img.file }}" loading="lazy">
+          <div class="cap">{{ img.event }} — {{ img.file }}</div>
         </article>
         {% endfor %}
       {% endfor %}

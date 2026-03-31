@@ -41,7 +41,7 @@
       <h2>Daily Snapshot &mdash; {{ today }}</h2>
       <p>
         {% if today_data %}
-          {{ today_data.events | length }} events detected today.
+          {{ today_data.events | length }} event{{ "s" if today_data.events | length != 1 }} detected today.
           {{ today_data.images | length }} images and {{ today_data.videos | length }} video clips captured.
         {% else %}
           No detection data recorded for today yet. The analysis subsystem may still be initializing.
@@ -93,8 +93,8 @@
       <div class="gallery">
         {% for img in today_data.images %}
         <article class="thumb">
-          <img src="{{ url_for('serve_image', day_id=today_data.day, filename=img) }}" alt="{{ img }}" loading="lazy">
-          <div class="cap">{{ img }}</div>
+          <img src="{{ url_for('serve_image', day_id=today_data.day, event_id=img.event, filename=img.file) }}" alt="{{ img.file }}" loading="lazy">
+          <div class="cap">{{ img.event }} — {{ img.file }}</div>
         </article>
         {% endfor %}
       </div>
@@ -107,12 +107,12 @@
       <h3>Video Review</h3>
       {% if today_data and today_data.videos %}
       <video id="mainVideo" controls preload="metadata"
-             src="{{ url_for('serve_video', day_id=today_data.day, filename=today_data.videos[0]) }}"></video>
+             src="{{ url_for('serve_video', day_id=today_data.day, event_id=today_data.videos[0].event, filename=today_data.videos[0].file) }}"></video>
       <div class="video-list">
         {% for vid in today_data.videos %}
         <div class="video-item">
-          <span class="muted">{{ vid }}</span>
-          <button type="button" onclick="document.getElementById('mainVideo').src='{{ url_for('serve_video', day_id=today_data.day, filename=vid) }}'; document.getElementById('mainVideo').play();">Load</button>
+          <span class="muted">{{ vid.event }} — {{ vid.file }}</span>
+          <button type="button" onclick="document.getElementById('mainVideo').src='{{ url_for('serve_video', day_id=today_data.day, event_id=vid.event, filename=vid.file) }}'; document.getElementById('mainVideo').play();">Load</button>
         </div>
         {% endfor %}
       </div>
@@ -127,17 +127,18 @@
     <h3>Recent Detection Log</h3>
     <div style="overflow:auto;">
       <table>
-        <thead><tr><th>Time</th><th>Event</th></tr></thead>
+        <thead><tr><th>Time</th><th>Images</th><th>Videos</th></tr></thead>
         <tbody>
           {% if today_data %}
             {% for entry in today_data.events %}
             <tr>
               <td class="muted">{{ entry.ts }}</td>
-              <td>{{ entry.event }}</td>
+              <td>{{ entry.images | length }}</td>
+              <td>{{ entry.videos | length }}</td>
             </tr>
             {% endfor %}
           {% else %}
-            <tr><td colspan="2" class="muted">No events recorded today.</td></tr>
+            <tr><td colspan="3" class="muted">No events recorded today.</td></tr>
           {% endif %}
         </tbody>
       </table>

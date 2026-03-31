@@ -198,21 +198,27 @@
       { ts: "2026-03-05 13:17:48", event: "system" },
       { ts: "2026-03-05 14:09:21", event: "alert" }
     ];
-    const systemStats = {
-      uptime: "13h 12m",
-      storageFree: "96% - 972.8 GiB",
-      gpuTemp: "58 C",
-      cameraHealth: "STANDBY"
-    };
-
     document.getElementById("dayTitle").textContent = "Daily Snapshot - " + demoDay;
     document.getElementById("eventsCount").textContent = logs.length;
     document.getElementById("imagesCount").textContent = images.length;
     document.getElementById("videosCount").textContent = videos.length;
-    document.getElementById("uptimeStat").textContent = systemStats.uptime;
-    document.getElementById("storageStat").textContent = systemStats.storageFree;
-    document.getElementById("tempStat").textContent = systemStats.gpuTemp;
-    document.getElementById("cameraStat").textContent = systemStats.cameraHealth;
+
+    // Fetch live system stats from the Jetson and refresh every 10 seconds
+    function loadSystemStats() {
+      fetch("/api/system-stats", { credentials: "include" })
+        .then(r => r.json())
+        .then(stats => {
+          document.getElementById("uptimeStat").textContent = stats.uptime || "N/A";
+          document.getElementById("storageStat").textContent = stats.storage_free || "N/A";
+          document.getElementById("tempStat").textContent = stats.gpu_temp || "N/A";
+          document.getElementById("cameraStat").textContent = stats.status || "OFFLINE";
+        })
+        .catch(() => {
+          document.getElementById("cameraStat").textContent = "OFFLINE";
+        });
+    }
+    loadSystemStats();
+    setInterval(loadSystemStats, 10000);
 
     const imageGrid = document.getElementById("imageGrid");
     images.forEach((item) => {

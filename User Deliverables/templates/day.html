@@ -35,60 +35,46 @@
     </div>
   </section>
 
-  <section class="layout">
-    <section class="card">
-      <h3>Event Timeline</h3>
-      <div style="overflow:auto;">
-        <table>
-          <thead><tr><th>Time</th><th>Event</th></tr></thead>
-          <tbody>
-            {% for entry in day.events %}
-            <tr>
-              <td class="muted">{{ entry.ts }}</td>
-              <td>{{ entry.event }}</td>
-            </tr>
-            {% endfor %}
-            {% if not day.events %}
-            <tr><td colspan="2" class="muted">No events.</td></tr>
-            {% endif %}
-          </tbody>
-        </table>
+  {% for ev in day.events %}
+  <section class="card" style="margin-bottom:16px;">
+    <h3>Event — {{ ev.ts }}</h3>
+    <div class="layout">
+      <div>
+        <h4 style="margin:0 0 8px;">Images ({{ ev.images | length }})</h4>
+        {% if ev.images %}
+        <div class="gallery">
+          {% for img in ev.images %}
+          <article class="thumb">
+            <img src="{{ url_for('serve_image', day_id=day.day, event_id=ev.ts, filename=img) }}" alt="{{ img }}" loading="lazy">
+            <div class="cap">{{ img }}</div>
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">No images for this event.</div>
+        {% endif %}
       </div>
-    </section>
 
-    <section class="card">
-      <h3>Video Clips</h3>
-      {% if day.videos %}
-      <video id="mainVideo" controls preload="metadata"
-             src="{{ url_for('serve_video', day_id=day.day, filename=day.videos[0]) }}"></video>
-      <div class="video-list">
-        {% for vid in day.videos %}
+      <div>
+        <h4 style="margin:0 0 8px;">Videos ({{ ev.videos | length }})</h4>
+        {% if ev.videos %}
+        <video controls preload="metadata" style="width:100%;border-radius:8px;"
+               src="{{ url_for('serve_video', day_id=day.day, event_id=ev.ts, filename=ev.videos[0]) }}"></video>
+        {% for vid in ev.videos %}
         <div class="video-item">
           <span class="muted">{{ vid }}</span>
-          <button type="button" onclick="document.getElementById('mainVideo').src='{{ url_for('serve_video', day_id=day.day, filename=vid) }}'; document.getElementById('mainVideo').play();">Load</button>
         </div>
         {% endfor %}
+        {% else %}
+        <div class="empty">No videos for this event.</div>
+        {% endif %}
       </div>
-      {% else %}
-      <div class="empty">No videos available for this day.</div>
-      {% endif %}
-    </section>
-  </section>
-
-  <section class="card" style="margin-top:16px;">
-    <h3>Image Captures</h3>
-    {% if day.images %}
-    <div class="gallery">
-      {% for img in day.images %}
-      <article class="thumb">
-        <img src="{{ url_for('serve_image', day_id=day.day, filename=img) }}" alt="{{ img }}" loading="lazy">
-        <div class="cap">{{ img }}</div>
-      </article>
-      {% endfor %}
     </div>
-    {% else %}
-    <div class="empty">No images available for this day.</div>
-    {% endif %}
   </section>
+  {% endfor %}
+
+  {% if not day.events %}
+  <section class="card"><div class="empty">No events recorded for this day.</div></section>
+  {% endif %}
 </main>
 {% endblock %}
