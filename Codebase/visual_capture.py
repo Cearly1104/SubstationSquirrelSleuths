@@ -1,11 +1,7 @@
-import os
 import time
 import subprocess
-import threading
 import shutil
-import signal
 import queue
-from pathlib import Path
 
 SEGMENT_TIME = 1
 
@@ -14,7 +10,7 @@ def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, 
     camera_name = f"cam{cam_id}"
     
     # Subdirectory Creation
-    # Level 1 capture subdirectory
+    # Level 1 capture subdirectories
     camera_dir = capture_dir / camera_name
 
     # Level 2 capture subdirectories  
@@ -50,7 +46,7 @@ def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, 
         str(buffer_dir / "seg%d.ts")
     ]
 
-    proc = subprocess.Popen(buffer)
+    proc = subprocess.Popen(buffer, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
     episode_active = False
     start_time = None
@@ -59,7 +55,7 @@ def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, 
     try:
         while True:
 
-            # Get message from detection queue
+            # Get message from detection queue, don't block
             try:
                 msg = detection_queue.get_nowait()
             except queue.Empty:
@@ -108,6 +104,7 @@ def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, 
 
 def finalize_episode(camera_name, buffer_dir, episode_dir, results_dir, start_time, end_time):
 
+    # Store all segment files currently in the buffer folder, sorted by their modification time
     segments = sorted(buffer_dir.glob("seg*.ts"), key=lambda p: p.stat().st_mtime)
 
     # Give FFmpeg a second to finish writing last segment (avoid concatenating an unfinished file)
@@ -116,17 +113,20 @@ def finalize_episode(camera_name, buffer_dir, episode_dir, results_dir, start_ti
     episode_temp_dir = episode_dir / f"{start_time}"
     episode_temp_dir.mkdir(parents=True, exist_ok=True)
 
+    # Copy segments into a new per-episode temp folder
     for seg in segments:
         shutil.copy(seg, episode_temp_dir / seg.name)
 
-    # Build concat list
+    # Build concat list out of present segments, used by FFmpeg to concatenate segments into one video
     concat_file = episode_temp_dir / "concat.txt"
     with open(concat_file, "w") as f:
         for seg in sorted(episode_temp_dir.glob("seg*.ts")):
             f.write(f"file '{seg.name}'\n")
 
+    # Output episode named with camera id and detection timestamp
     output_file = results_dir / f"{camera_name}_{start_time}.mp4"
     
+    # Concate segments into .mp4
     concat_cmd = [
         "ffmpeg",
         "-f", "concat",
@@ -136,7 +136,7 @@ def finalize_episode(camera_name, buffer_dir, episode_dir, results_dir, start_ti
         str(output_file)
     ]
 
-    subprocess.run(concat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    subprocess.run(concat_cmd)
 
     print(f"[{camera_name}] Episode saved → {output_file}")
 

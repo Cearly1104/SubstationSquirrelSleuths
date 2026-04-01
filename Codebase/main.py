@@ -31,16 +31,21 @@ def analysis_worker(analysis_queue, analysis_dir, model_path, source_points=None
 
 if __name__ == "__main__":
 
-    # Verify weights files exist in the right path before doing any work, if not close with error
+    # Verify weights file exists in the right path before doing any work, if not close with error
     WEIGHTS_DIR = "weights"
-    if not os.path.exists(WEIGHTS_DIR):
+    empty = True
+    for _ in os.scandir(WEIGHTS_DIR):
+        empty = False
+        break
+
+    if (not os.path.exists(WEIGHTS_DIR) or empty):
         print("Model weights not found, stopping process...")
         sys.exit(1)
 
     ########################## Settings ###########################
     FEEDS = {               # RTSP feed urls
         "cam0": "rtsp://admin:123456@10.0.0.11:554/profile1",   # main (highest quality) feed
-        #"cam1": "rtsp://admin:123456@10.0.0.11:554/profile2",   # sub (low quality) feed
+        #"cam1": "rtsp://admin:123456@10.0.0.11:554/profile2",  # sub (low quality) feed
 #        "cam2": "rtsp://admin:123456@10.0.0.11:554/profile3",  # third (lowest quality) feed
 #        "cam3": "rtsp://localhost:8554/desktop"                # desktop stream feed
     }
@@ -61,33 +66,22 @@ if __name__ == "__main__":
     capture_dir = temp_dir / "capture"
     analysis_dir = temp_dir / "analysis"
 
-    # Level 3 directories
-    detection_episodes_dir = detection_dir / "episodes"
-    detection_output_dir = detection_dir / "output"
+    # Level 3 directories get handled individually within individual .py subfiles
 
     # Create all directories at once
-    for path in [temp_dir, results_dir, detection_dir, capture_dir,
-                 analysis_dir, detection_episodes_dir, detection_output_dir]:
-
+    for path in [temp_dir, results_dir, detection_dir, capture_dir, analysis_dir]:
         path.mkdir(parents=True, exist_ok=True)
 
     ####################### Process Setup ########################
-    # One detection queue per camera
+    # One detection queue per camera, signals capture system to start recording
     detection_queues = {cam_name: queue.Queue() for cam_name in FEEDS}
 
-    # Analysis queue — episode videos are submitted here after finalization
+    # Analysis queue - episode videos are submitted here after finalization
     analysis_queue = queue.Queue()
 
-    # Start analysis worker thread (processes one video at a time, sequentially)
-    analysis_thread = threading.Thread(
-        target=analysis_worker,
-        args=(analysis_queue, results_dir, MODEL_PATH, SOURCE_POINTS),
-        daemon=True,
-    )
-    analysis_thread.start()
+    threads = []
 
     # Start one recorder thread per camera
-    threads = []
     for cam_id, (cam_name, feed_url) in enumerate(FEEDS.items()):
         t = threading.Thread(
             target=visual_capture.episode_recorder,
@@ -95,6 +89,15 @@ if __name__ == "__main__":
         )
         t.start()
         threads.append(t)
+
+    # Start the analysis worker thread (processes one video at a time, sequentially)
+    analysis_thread = threading.Thread(
+        target=analysis_worker,
+        args=(analysis_queue, results_dir, MODEL_PATH, SOURCE_POINTS),
+        daemon=True,
+    )
+    analysis_thread.start()
+    threads.append(analysis_thread)
 
     #######################  Testing ########################
     print("Rolling buffer started for all cameras.")
