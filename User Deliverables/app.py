@@ -294,7 +294,7 @@ CAMERAS_FILE = Path(os.environ.get("SSS_CAMERAS_FILE", BASE_DIR / "cameras.json"
 def _load_cameras():
     if CAMERAS_FILE.is_file():
         with open(CAMERAS_FILE) as f:
-            return {cam["id"]: cam["url"] for cam in json.load(f)}
+            return {cam["id"]: cam for cam in json.load(f)}
     return {}
 
 
@@ -327,9 +327,34 @@ def live_feed(cam_id):
     if cam_id not in cameras:
         abort(404)
     return Response(
-        _mjpeg_stream(cameras[cam_id]),
+        _mjpeg_stream(cameras[cam_id]["url"]),
         mimetype="multipart/x-mixed-replace; boundary=frame",
     )
+
+
+@app.route("/feed/<cam_id>/hq")
+@login_required
+def live_feed_hq(cam_id):
+    """MJPEG endpoint — high-quality stream (falls back to default URL)."""
+    cameras = _load_cameras()
+    if cam_id not in cameras:
+        abort(404)
+    cam = cameras[cam_id]
+    stream_url = cam.get("url_hq", cam["url"])
+    return Response(
+        _mjpeg_stream(stream_url),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@app.route("/live/<cam_id>")
+@login_required
+def live_view(cam_id):
+    """Full-page high-quality live view for a single camera."""
+    cameras = _load_cameras()
+    if cam_id not in cameras:
+        abort(404)
+    return render_template("live.html", cam_id=cam_id)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Live — {{ cam_id }}{% endblock %}
+{% block extra_style %}
+body{margin:0;overflow:hidden}
+.live-wrap{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  width:100vw;height:100vh;background:#000;
+}
+.live-wrap img{max-width:100%;max-height:calc(100vh - 48px);object-fit:contain}
+.live-bar{
+  width:100%;height:48px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;background:#111;color:var(--muted);font-size:.9rem;
+  font-family:var(--font-head);
+}
+.live-bar a{color:var(--ink);text-decoration:none;font-weight:600}
+.live-bar a:hover{text-decoration:underline}
+{% endblock %}
+
+{% block body %}
+<div class="live-wrap">
+  <div class="live-bar">
+    <a href="{{ url_for('dashboard') }}">&larr; Back to Dashboard</a>
+    <span>{{ cam_id }} &mdash; High Quality Stream</span>
+  </div>
+  <img src="{{ url_for('live_feed_hq', cam_id=cam_id) }}" alt="{{ cam_id }} HQ Feed">
+</div>
+{% endblock %}

@@ -14,7 +14,9 @@
 }
 .feed-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .feed-cell h4{margin:0 0 6px;font-size:.85rem;color:var(--muted)}
-.feed-cell img{width:100%;border-radius:8px;background:#111;aspect-ratio:16/9;object-fit:cover}
+.feed-cell a{display:block;cursor:pointer}
+.feed-cell img{width:100%;border-radius:8px;background:#111;aspect-ratio:16/9;object-fit:cover;transition:opacity .2s}
+.feed-cell a:hover img{opacity:.8}
 @media (max-width:930px){.feed-grid{grid-template-columns:1fr}}
 {% endblock %}
 
@@ -72,15 +74,21 @@
     <div class="feed-grid">
       <div class="feed-cell">
         <h4>Camera 0</h4>
-        <img src="{{ url_for('live_feed', cam_id='cam0') }}" alt="Camera 0 Feed">
+        <a href="{{ url_for('live_view', cam_id='cam0') }}">
+          <img src="{{ url_for('live_feed', cam_id='cam0') }}" alt="Camera 0 Feed">
+        </a>
       </div>
       <div class="feed-cell">
         <h4>Camera 1</h4>
-        <img src="{{ url_for('live_feed', cam_id='cam1') }}" alt="Camera 1 Feed">
+        <a href="{{ url_for('live_view', cam_id='cam1') }}">
+          <img src="{{ url_for('live_feed', cam_id='cam1') }}" alt="Camera 1 Feed">
+        </a>
       </div>
       <div class="feed-cell">
         <h4>Camera 2</h4>
-        <img src="{{ url_for('live_feed', cam_id='cam2') }}" alt="Camera 2 Feed">
+        <a href="{{ url_for('live_view', cam_id='cam2') }}">
+          <img src="{{ url_for('live_feed', cam_id='cam2') }}" alt="Camera 2 Feed">
+        </a>
       </div>
     </div>
   </section>
