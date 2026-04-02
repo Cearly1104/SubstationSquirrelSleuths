@@ -69,6 +69,25 @@ def _order_points(pts):
     return rect
 
 
+# ========================== Analysis Worker ==========================
+
+def analysis_worker(analysis_queue, analysis_dir, model_path, source_points=None):
+    """Watches for completed episode videos and runs sequential analysis on each."""
+    while True:
+        video_path = analysis_queue.get()
+        if video_path is None:
+            break
+        try:
+            run_analysis(
+                video_path=video_path,
+                output_dir=str(analysis_dir),
+                model_path=str(model_path),
+                source_points=source_points,
+            )
+        except Exception as e:
+            print(f"[analysis] Error processing {video_path}: {e}")
+
+
 # ========================== Stage 1: Tracking ==========================
 
 def stage_track(video_path, model_path, output_dir, device="cuda", conf=0.25, class_filter="squirrel"):

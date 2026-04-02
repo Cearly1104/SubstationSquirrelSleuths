@@ -5,13 +5,11 @@ import queue
 
 SEGMENT_TIME = 1
 
-def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, detection_queue):
+def episode_recorder(cam, detection_queue, capture_dir, results_dir, buf_len, stop):
 
-    camera_name = f"cam{cam_id}"
-    
-    # Subdirectory Creation
+    ## Subdirectory Creation
     # Level 1 capture subdirectories
-    camera_dir = capture_dir / camera_name
+    camera_dir = capture_dir / cam.name
 
     # Level 2 capture subdirectories  
     buffer_dir = camera_dir / "buffer"
@@ -27,9 +25,9 @@ def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, 
         try:
             seg.unlink()
         except Exception as e:
-            print(f"[{camera_name}] Failed to delete segment {seg}: {e}")
+            print(f"[{cam.name}] Failed to delete segment {seg}: {e}")
 
-    max_segments = int(buffer_length / SEGMENT_TIME)
+    max_segments = int(buf_len / SEGMENT_TIME)
 
     # Start ffmpeg segment recorder (copy mode)
     buffer = [
@@ -37,7 +35,7 @@ def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, 
         "-rtsp_transport", "tcp",
         "-use_wallclock_as_timestamps", "1",
         "-fflags", "+genpts",
-        "-i", feed_url,
+        "-i", cam.url,
         "-an",
         "-c:v", "copy",
         "-f", "segment",
@@ -53,30 +51,35 @@ def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, 
     end_time = None
 
     try:
-        while True:
+        while not stop.is_set():
 
-            # Get message from detection queue, don't block
-            try:
-                msg = detection_queue.get_nowait()
-            except queue.Empty:
-                msg = None
+            # Store a list of events in case of parallel detection triggers
+            events = []
 
-            # If a message was found, check if it was start or end signal
-            if msg and msg[0] == camera_name:
+            # Add each event from detection queue to events list, don't block
+            while True:
+                try:
+                    events.append(detection_queue.get_nowait())
+                except queue.Empty:
+                    break
+
+            # Check if each event found is a START or END signal
+            for event in events:
                 # Start -> save start timestamp, activate episode logic (stop deleting oldest segments until episode ends,
                 #  giving buffer_length seconds of pre-episode footage)
-                if msg[1] == "START":
+                if event.event_type == "START" and not episode_active:
                     episode_active = True
-                    start_time = msg[2]
-                    print(f"[{camera_name}] Episode START at {start_time}")
+                    start_time = event.timestamp
+                    print(f"[{cam.name}] Episode START at {start_time}")
 
                 # End -> save end timestamp, finalize the episode by copying video segments into a new directory 
                 # and concatenating them into a single .mp4 of the entire episode
-                elif msg[1] == "END":
-                    end_time = msg[2]
-                    print(f"[{camera_name}] Episode END at {end_time}")
+                elif event.event_type == "END" and episode_active:
+                    end_time = event.timestamp
+                    print(f"[{cam.name}] Episode END at {end_time}")
 
-                    finalize_episode(camera_name, buffer_dir, episode_dir, results_dir, start_time, end_time)
+                    if start_time is not None:
+                        finalize_episode(cam.name, buffer_dir, episode_dir, results_dir, start_time)
                     episode_active = False
                     start_time = None
                     end_time = None
@@ -84,10 +87,11 @@ def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, 
             # Rolling video storage when NOT in episode, deletes oldest segments until segments.length <= max_segments
             if not episode_active:
                 segments = sorted(buffer_dir.glob("seg*.ts"), key=lambda p: p.stat().st_mtime)
+                finished_segments = segments[:-1]    # Avoid deleting newest segment since it may be actively under writing
                 # Only delete if there are more than max_segments, if so delete oldest excess segments all at once
-                excess = len(segments) - max_segments
+                excess = len(finished_segments) - max_segments
                 if excess > 0:
-                    for seg in segments[:excess]:
+                    for seg in finished_segments[:excess]:
                         try:
                             seg.unlink()
                         except Exception as e:
@@ -96,13 +100,16 @@ def episode_recorder(feed_url, cam_id, capture_dir, results_dir, buffer_length, 
             time.sleep(0.1)
 
     finally:
-        print(f"[{camera_name}] Shutting down.")
+        print(f"[{cam.name}] Shutting down.")
         proc.terminate()
-        proc.wait()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
 
 
-def finalize_episode(camera_name, buffer_dir, episode_dir, results_dir, start_time, end_time):
+def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time):
 
     # Store all segment files currently in the buffer folder, sorted by their modification time
     segments = sorted(buffer_dir.glob("seg*.ts"), key=lambda p: p.stat().st_mtime)
@@ -124,7 +131,7 @@ def finalize_episode(camera_name, buffer_dir, episode_dir, results_dir, start_ti
             f.write(f"file '{seg.name}'\n")
 
     # Output episode named with camera id and detection timestamp
-    output_file = results_dir / f"{camera_name}_{start_time}.mp4"
+    output_file = results_dir / f"{cam_name}_{start_time}.mp4"
     
     # Concate segments into .mp4
     concat_cmd = [
@@ -138,7 +145,7 @@ def finalize_episode(camera_name, buffer_dir, episode_dir, results_dir, start_ti
 
     subprocess.run(concat_cmd)
 
-    print(f"[{camera_name}] Episode saved → {output_file}")
+    print(f"[{cam_name}] Episode saved → {output_file}")
 
     # Cleanup temp directory
     shutil.rmtree(episode_temp_dir)

@@ -2,24 +2,138 @@ from ultralytics import YOLO
 import cv2
 import os
 import threading
+import time
+import queue
 from datetime import datetime
+from dataclasses import dataclass
 
-latest_frame = None
-reader_running = True
+# Dictionary of each camera's frame state
+# Contains a frame, timestamp, and write lock
+states = {}
 
-def rtsp_reader(cap, frame_lock):
-    global latest_frame, reader_running
-    while reader_running:
+# Detection event dataclass, holds an event's type, associated camera id, and timestamp
+@dataclass
+class Event:
+    camera_id: int
+    event_type: str
+    timestamp: datetime
+
+def initialize_frames(cameras):
+    for cam in cameras:
+        states[cam.id] = {
+            "frame": None,
+            "timestamp": None,
+            "lock": threading.Lock()
+        }
+
+def helper(camera, stop):
+
+    state = states[camera.id]
+    
+    # Use OpenCV to open the camera feed for frame capture
+    cap = cv2.VideoCapture(camera.url, cv2.CAP_FFMPEG)
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open video/stream: {camera.url}")
+    
+    # Set low frame capture buffersize for low latency
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    # Grab frame+current timestamp in a loop 
+    while not stop.is_set():
         ret, frame = cap.read()
+        timestamp = datetime.now()
         if not ret:
-            break
-        with frame_lock:
-            latest_frame = frame
+            time.sleep(0.01)
+            continue
+        
+        # Update the camera's latest frame info if unlocked
+        with state["lock"]:
+            state["frame"] = frame
+            state["timestamp"] = timestamp
+
+
+def batch_frames(cameras):
+
+    batch = []
+
+    for cam in cameras:
+        state = states[cam.id]
+
+        with state["lock"]:
+            frame = state["frame"]
+            timestamp = state["timestamp"]
+
+        if frame is None:
+            continue
+
+        batch.append((cam.id, frame, timestamp))
+
+    return batch
+
+def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, model_path, fps):
+
+    initialize_frames(cameras)
+
+    ## Subdirectory Creation
+    # Level 1 detection subdirectories
+    detection_episodes_dir = detection_dir / "episodes"
+
+    # Create all directories at once
+    for path in [detection_episodes_dir]:
+        path.mkdir(parents=True, exist_ok=True)
+
+    model = YOLO(model_path)
+
+    episode_index = 0
+    in_episode = False
+    last_detection_time = None
+    no_detection_delay = 2.0
+
+    while True:
+        loop_start = time.time()
+
+        batch = batch_frames(cameras)
+
+        if len(batch) < 1:
+            continue
+
+        frames = [f for _, f, _ in batch]
+
+        results = model(frames, conf=0.10, verbose=False)[0]
+        boxes = results.boxes
+
+        squirrel_present = boxes is not None and len(boxes) > 0
+
+        now = datetime.now()
+
+        # ---- EVENT LOGIC ----
+        if squirrel_present:
+            last_detection_time = now
+
+            if not in_episode:
+                in_episode = True
+                print(f"Start episode {episode_index}")
+
+        else:
+            if in_episode and last_detection_time:
+                if (now - last_detection_time).total_seconds() >= no_detection_delay:
+                    print(f"End episode {episode_index}")
+                    in_episode = False
+                    episode_index += 1
+
+        # ---- FPS CONTROL ----
+        elapsed = time.time() - loop_start
+        sleep_time = max(0, (1 / fps) - elapsed)
+        time.sleep(sleep_time)
+
+
+
+
 
 def run_squirrel_detector(triggers, write_complete, SUB_FEED, detection_dir, WEIGHTS_DIR):
     global reader_running, latest_frame
 
-    # Subdirectory Creation
+    ## Subdirectory Creation
     # Level 1 detection subdirectories
     detection_episodes_dir = detection_dir / "episodes"
     detection_inputs_dir = detection_dir / "input_frames"
