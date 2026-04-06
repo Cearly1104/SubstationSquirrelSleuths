@@ -70,7 +70,10 @@ def batch_frames(cameras):
 
     return batch
 
-def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, model_path, fps):
+# TODO add start and end smoothing
+def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, model_path, confidence, fps, stop):
+
+    cam_lookup = {cam.id: cam for cam in cameras}
 
     initialize_frames(cameras)
 
@@ -84,44 +87,78 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
 
     model = YOLO(model_path)
 
-    episode_index = 0
-    in_episode = False
-    last_detection_time = None
+    episode_state = {
+        cam.id: {
+            "in_episode": False,
+            "last_detection_time": None,
+            "episode_index": 0
+        }
+        for cam in cameras
+    }
     no_detection_delay = 2.0
 
-    while True:
+    while not stop.is_set():
         loop_start = time.time()
 
         batch = batch_frames(cameras)
 
         if len(batch) < 1:
+            time.sleep(0.01)
             continue
 
-        frames = [f for _, f, _ in batch]
+        # Pull only frames to be passed in as the model's input
+        # Done by unpacking the batch tuple into just a list of frames
+        frames = [frame for _, frame, _ in batch]
 
-        results = model(frames, conf=0.10, verbose=False)[0]
-        boxes = results.boxes
+        results = model(frames, confidence, verbose=False)
 
-        squirrel_present = boxes is not None and len(boxes) > 0
+        for i, (cam_id, frame, timestamp) in enumerate(batch):
 
-        now = datetime.now()
+            result = results[i]
+            boxes = result.boxes
 
-        # ---- EVENT LOGIC ----
-        if squirrel_present:
-            last_detection_time = now
+            squirrel_present = boxes is not None and len(boxes) > 0
 
-            if not in_episode:
-                in_episode = True
-                print(f"Start episode {episode_index}")
+            state = episode_state[cam_id]
 
-        else:
-            if in_episode and last_detection_time:
-                if (now - last_detection_time).total_seconds() >= no_detection_delay:
-                    print(f"End episode {episode_index}")
-                    in_episode = False
-                    episode_index += 1
 
-        # ---- FPS CONTROL ----
+            if squirrel_present:
+                state["last_detection_time"] = timestamp
+
+                if not state["in_episode"]:
+                    event = Event(cam_id, "START", timestamp)
+                    detection_queues[cam_id].put(event)
+
+                    state["in_episode"] = True
+                    print(f"Start episode {state['episode_index']} (cam {cam_id})")
+
+
+                    cam_name = cam_lookup[cam_id].name
+                    episode_name = f"ep_{state['episode_index']:03d}"
+
+                    episode_dir = detection_episodes_dir / cam_name / episode_name
+                    episode_dir.mkdir(parents=True, exist_ok=True)
+
+            else:
+                if state["in_episode"]:
+                    last_time = state["last_detection_time"]
+                    now = datetime.now()
+                    if last_time and ((timestamp - last_time).total_seconds() >= no_detection_delay
+                    or (now - last_time).total_seconds() >= no_detection_delay):
+                        # TODO use 'now' if thats what triggered end of episode
+                        event = Event(cam_id, "END", timestamp)
+                        detection_queues[cam_id].put(event)
+
+                        print(f"End episode {state['episode_index']} (cam {cam_id})")
+
+                        state["in_episode"] = False
+                        state["episode_index"] += 1
+
+            annotated = result.plot()
+            cv2.imshow(cam_name, annotated)
+
+        cv2.waitKey(1)
+
         elapsed = time.time() - loop_start
         sleep_time = max(0, (1 / fps) - elapsed)
         time.sleep(sleep_time)
