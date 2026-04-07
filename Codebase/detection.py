@@ -81,7 +81,8 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
             "frame": None,
             "timestamp": None,
             "last_update": 0,
-            "lock": threading.Lock()
+            "lock": threading.Lock(),
+            "consecutive_frames": 0
         }
 
     model = YOLO(model_path)
@@ -101,6 +102,7 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
 
     # Episode control variables
     episode_cutoff = 2.0    # Seconds to 
+    consecutive_frame_threshold = 1 # Required consecutive detection frames before an episode can be started
     # start_threshold = 3
     # end_threshold = 5
 
@@ -134,9 +136,9 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
                 # Start/End episode based on squirrel presence
                 if squirrel_present:
                     state["last_detection_time"] = timestamp
-
+                    state["consecutive_frames"] += 1
                     # Start an episode if squirrel detected and not already in one
-                    if not state["in_episode"]:
+                    if not state["in_episode"] and state["consecutive_frames"] > consecutive_frame_threshold:
                         event = Event(cam_id, "START", timestamp)
                         detection_queues[cam_id].put(event)
 
@@ -162,6 +164,7 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
 
 
                 else:
+                    state["consecutive_frames"] = 0
                     # End an episode if currently in one, but squirrel not detected for the episode cutoff time
                     if state["in_episode"]:
                         last_time = state["last_detection_time"]
