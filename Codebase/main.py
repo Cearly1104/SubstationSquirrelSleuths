@@ -95,14 +95,14 @@ if __name__ == "__main__":
         threads.append(t0)
         threads.append(t1)
 
-    # # Start the analysis worker thread (processes one video at a time, sequentially)
-    # analysis_thread = threading.Thread(
-    #     target=visual_analysis.analysis_worker,
-    #     args=(analysis_queue, daily_dir, MODEL_PATH, SOURCE_POINTS),
-    #     daemon=True
-    # )
-    # analysis_thread.start()
-    # threads.append(analysis_thread)
+    # Start the analysis worker thread (processes one video at a time, sequentially)
+    analysis_thread = threading.Thread(
+        target=visual_analysis.analysis_worker,
+        args=(analysis_queue, daily_dir, MODEL_PATH, SOURCE_POINTS, stop_event),
+        daemon=True
+    )
+    analysis_thread.start()
+    threads.append(analysis_thread)
 
     #######################  Testing ########################
     print("System is running")

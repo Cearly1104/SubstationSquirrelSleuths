@@ -2,6 +2,7 @@ import os
 import gc
 from collections import defaultdict
 from pathlib import Path
+from queue import Empty
 
 import cv2
 import numpy as np
@@ -71,12 +72,19 @@ def _order_points(pts):
 
 # ========================== Analysis Worker ==========================
 
-def analysis_worker(analysis_queue, analysis_dir, model_path, source_points=None):
+def analysis_worker(analysis_queue, analysis_dir, model_path, source_points, stop):
     """Watches for completed episode videos and runs sequential analysis on each."""
-    while True:
-        video_path = analysis_queue.get()
-        if video_path is None:
-            break
+    while not stop.is_set():
+
+        try:
+            item = analysis_queue.get(timeout=0.5)
+        except Empty:
+            continue
+
+        video_path = item["clip_path"]
+        cam_name = item["cam_name"]
+        timestamp = item["timestamp"]
+
         try:
             run_analysis(
                 video_path=video_path,

@@ -144,7 +144,7 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
         str(output_file)
     ]
 
-    subprocess.run(concat_cmd)
+    subprocess.run(concat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
     print(f"[{cam_name}] Episode saved → {output_file}")
 

@@ -179,7 +179,11 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
 
                             clip_path = state["episode_dir"] / "_raw.mp4"
                             if clip_path.exists() and clip_path.stat().st_size > 0:
-                                analysis_queue.put(str(clip_path))
+                                analysis_queue.put({
+                                    "clip_path": str(clip_path),
+                                    "cam_name": cam_name,
+                                    "timestamp": timestamp
+                                })
                             else:
                                 #TODO convert to error
                                 print(f"Warning: clip missing or empty for episode {state['episode_dir']} (cam {cam_id}), skipping analysis")
