@@ -44,12 +44,34 @@ app.secret_key = os.environ.get("SSS_SECRET_KEY", secrets.token_hex(32))
 
 ACCOUNTS_FILE = Path(os.environ.get("SSS_ACCOUNTS_FILE", BASE_DIR / "accounts.json"))
 
+# Login attempt log — one line per attempt, appended in CSV format.
+LOGIN_LOG_FILE = Path(os.environ.get("SSS_LOGIN_LOG", BASE_DIR / "login_attempts.log"))
+
 
 def _load_accounts():
     if ACCOUNTS_FILE.is_file():
         with open(ACCOUNTS_FILE) as f:
             return json.load(f)
     return [{"username": "admin", "password": "sss"}]
+
+
+def _log_login_attempt(username, result):
+    """Append a login attempt record to the login log.
+
+    Each line is: ISO-timestamp,result,username,ip,user-agent
+    Safe against filesystem errors so a full disk can't break auth.
+    """
+    try:
+        ts = datetime.now().isoformat(timespec="seconds")
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr or "-")
+        ua = (request.headers.get("User-Agent") or "-").replace(",", " ").replace("\n", " ")
+        safe_user = (username or "-").replace(",", " ").replace("\n", " ")
+        line = f"{ts},{result},{safe_user},{ip},{ua}\n"
+        LOGIN_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOGIN_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -203,9 +225,11 @@ def login():
             None,
         )
         if match:
+            _log_login_attempt(match["username"], "success")
             session["user"] = match["username"]
             next_page = request.args.get("next", url_for("dashboard"))
             return redirect(next_page)
+        _log_login_attempt(username, "failure")
         return render_template("login.html", error="Invalid username or password.")
     return render_template("login.html", error=None)
 
