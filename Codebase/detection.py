@@ -8,25 +8,20 @@ from datetime import datetime
 from dataclasses import dataclass
 
 # Dictionary of each camera's frame state
-# Contains a frame, timestamp, and write lock
+# Contains a frame, timestamp, and write lock to eliminate race conditions
 states = {}
 
 # Detection event dataclass, holds an event's type, associated camera id, and timestamp
+# to easily pass necessary detection info to the capture system
 @dataclass
 class Event:
     camera_id: int
     event_type: str
     timestamp: datetime
 
-def initialize_frames(cameras):
-    for cam in cameras:
-        states[cam.id] = {
-            "frame": None,
-            "timestamp": None,
-            "lock": threading.Lock()
-        }
-
-def helper(camera, stop):
+# Detection helper function to grab a camera frame and its associated timestamp to be passed to the YOLO model
+# One helper per camera
+def detection_helper(camera, stop):
 
     state = states[camera.id]
     
@@ -38,7 +33,7 @@ def helper(camera, stop):
     # Set low frame capture buffersize for low latency
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-    # Grab frame+current timestamp in a loop 
+    # Grab frame+current timestamp in a continuous loop 
     while not stop.is_set():
         ret, frame = cap.read()
         timestamp = datetime.now()
@@ -50,121 +45,164 @@ def helper(camera, stop):
         with state["lock"]:
             state["frame"] = frame
             state["timestamp"] = timestamp
+            state["last_update"] = time.monotonic()
 
-
-def batch_frames(cameras):
+# Function to take current frame states at an instance of time and group them in camera order to be processed together in a batch
+def batch_frames(cameras, frozen_threshold):
 
     batch = []
-
+    now = time.monotonic()
     for cam in cameras:
         state = states[cam.id]
 
         with state["lock"]:
             frame = state["frame"]
             timestamp = state["timestamp"]
+            last_update = state["last_update"]
 
-        if frame is None:
-            continue
+        # Ensure the state has a frame and that it has been updated recently to avoid reprocessing old frames
+        if frame is not None and now - last_update <= frozen_threshold:
+            batch.append((cam.id, frame, timestamp))
 
-        batch.append((cam.id, frame, timestamp))
-
+    # Returns a list of fresh cam_id, frame, timestamp tuples
     return batch
 
 # TODO add start and end smoothing
-def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, model_path, confidence, fps, stop):
+# Main detection function, takes fresh frames from helper->batch functions and processes them with a YOLO model
+# Model outputs squirrel detections and prompts the capture system to record squirrel detection episodes
+# Detection logs are taken and annotated processed frames are stored for analysis system usage, prompted by episode write completion
+def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, model_path, frozen_threshold, confidence, fps, stop):
 
     cam_lookup = {cam.id: cam for cam in cameras}
 
-    initialize_frames(cameras)
-
-    ## Subdirectory Creation
-    # Level 1 detection subdirectories
-    detection_episodes_dir = detection_dir / "episodes"
-
-    # Create all directories at once
-    for path in [detection_episodes_dir]:
-        path.mkdir(parents=True, exist_ok=True)
+    # Initialize camera frame states
+    for cam in cameras:
+        states[cam.id] = {
+            "frame": None,
+            "timestamp": None,
+            "last_update": 0,
+            "lock": threading.Lock()
+        }
 
     model = YOLO(model_path)
 
+    # Initialize and keep track of each camera's episode status
     episode_state = {
         cam.id: {
             "in_episode": False,
             "last_detection_time": None,
-            "episode_index": 0
+            "episode_dir": None,
+            "episode_writer": None,
+            "detection_streak": 0,
+            "no_detection_streak": 0
         }
         for cam in cameras
     }
-    no_detection_delay = 2.0
 
+    # Episode control variables
+    episode_cutoff = 2.0    # Seconds to 
+    # start_threshold = 3
+    # end_threshold = 5
+
+    # Main loop, parses frames, associates results with proper camera and prompts capture system for episode start and end
+    # Frames with detections are annotated with bounding boxes are saved and path directories are passed to analysis system for tracking
     while not stop.is_set():
         loop_start = time.time()
 
-        batch = batch_frames(cameras)
+        batch = batch_frames(cameras, frozen_threshold)
 
-        if len(batch) < 1:
+        if not batch:
             time.sleep(0.01)
             continue
 
         # Pull only frames to be passed in as the model's input
         # Done by unpacking the batch tuple into just a list of frames
         frames = [frame for _, frame, _ in batch]
+        results = model(frames, conf=confidence, verbose=False)
 
-        results = model(frames, confidence, verbose=False)
-
+        # loop over each result, comparing and updating episode status as appropriate
         for i, (cam_id, frame, timestamp) in enumerate(batch):
 
             result = results[i]
             boxes = result.boxes
-
             squirrel_present = boxes is not None and len(boxes) > 0
 
             state = episode_state[cam_id]
+            cam_name = cam_lookup[cam_id].name
 
-
+            # Start/End episode based on squirrel presence
             if squirrel_present:
                 state["last_detection_time"] = timestamp
 
+                # Start an episode if squirrel detected and not already in one
                 if not state["in_episode"]:
                     event = Event(cam_id, "START", timestamp)
                     detection_queues[cam_id].put(event)
 
                     state["in_episode"] = True
-                    print(f"Start episode {state['episode_index']} (cam {cam_id})")
-
-
-                    cam_name = cam_lookup[cam_id].name
-                    episode_name = f"ep_{state['episode_index']:03d}"
-
-                    episode_dir = detection_episodes_dir / cam_name / episode_name
+                    
+                    # Set up episode naming and storage
+                    episode_name = timestamp.strftime("ep_%Y-%m-%d_%I.%M.%S%p") # Format: ep_YYYY-MM-DD_HH.MM.SS AM/PM
+                    episode_dir = detection_dir / episode_name / cam_name
                     episode_dir.mkdir(parents=True, exist_ok=True)
+                    state["episode_dir"] = episode_dir
+
+                    # Open an OpenCV VideoWriter to write processed frames into an mp4 for analysis input
+                    h, w = result.orig_img.shape[:2]
+                    state["episode_writer"] = cv2.VideoWriter(
+                        str(episode_dir / "_raw.mp4"),
+                        cv2.VideoWriter_fourcc(*"mp4v"),
+                        fps,
+                        (w, h)
+                    )
+
+                    #TODO remove
+                    print(f"Start episode {state['episode_dir']} (cam {cam_id})")
+
 
             else:
+                # End an episode if currently in one, but squirrel not detected for the episode cutoff time
                 if state["in_episode"]:
                     last_time = state["last_detection_time"]
-                    now = datetime.now()
-                    if last_time and ((timestamp - last_time).total_seconds() >= no_detection_delay
-                    or (now - last_time).total_seconds() >= no_detection_delay):
-                        # TODO use 'now' if thats what triggered end of episode
+                    if last_time and (timestamp - last_time).total_seconds() >= episode_cutoff:
                         event = Event(cam_id, "END", timestamp)
                         detection_queues[cam_id].put(event)
 
-                        print(f"End episode {state['episode_index']} (cam {cam_id})")
+                        # TODO remove
+                        print(f"End episode {state['episode_dir']} (cam {cam_id})")
 
+                        # Release VideoWriter and pass completed episode to analysis
+                        if state["episode_writer"] is not None:
+                            state["episode_writer"].release()
+                            state["episode_writer"] = None
+
+                        clip_path = state["episode_dir"] / "_raw.mp4"
+                        if clip_path.exists() and clip_path.stat().st_size > 0:
+                            analysis_queue.put(str(clip_path))
+                        else:
+                            #TODO convert to error
+                            print(f"Warning: clip missing or empty for episode {state['episode_dir']} (cam {cam_id}), skipping analysis")
+
+                        # Update camera's episode state after episode completion
                         state["in_episode"] = False
-                        state["episode_index"] += 1
+                        state["episode_dir"] = None
 
-            annotated = result.plot()
-            cv2.imshow(cam_name, annotated)
+            # Write processed frame to output folder
+            if state["in_episode"] and state["episode_writer"] is not None:
+                state["episode_writer"].write(frame)
 
-        cv2.waitKey(1)
+        #TODO remove these window lines for headless deployment
+            cv2.imshow(cam_name, result.plot())
+        # Press 'q' in the window to exit
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("Pressed q — exiting.")
+            break
 
+        # Processing FPS controlled by looping at intervals of 1/fps
+        # If loop was faster than 1/fps, wait for (1/fps - (Loop end time - start time)) seconds
         elapsed = time.time() - loop_start
-        sleep_time = max(0, (1 / fps) - elapsed)
-        time.sleep(sleep_time)
-
-
-
+        if elapsed < 1/fps:
+            time.sleep(1/fps - elapsed)
 
 
 def run_squirrel_detector(triggers, write_complete, SUB_FEED, detection_dir, WEIGHTS_DIR):

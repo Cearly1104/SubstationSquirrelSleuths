@@ -105,6 +105,7 @@ def episode_recorder(cam, detection_queue, capture_dir, results_dir, buf_len, st
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
+            print(f"[{cam.name}] ffmpeg didn't exit, killing...")
             proc.kill()
 
 
@@ -117,7 +118,7 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
     # Give FFmpeg a second to finish writing last segment (avoid concatenating an unfinished file)
     time.sleep(1)
 
-    episode_temp_dir = episode_dir / f"{start_time}"
+    episode_temp_dir = episode_dir / start_time.strftime("%I.%M.%S%p")
     episode_temp_dir.mkdir(parents=True, exist_ok=True)
 
     # Copy segments into a new per-episode temp folder
@@ -131,7 +132,7 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
             f.write(f"file '{seg.name}'\n")
 
     # Output episode named with camera id and detection timestamp
-    output_file = results_dir / f"{cam_name}_{start_time}.mp4"
+    output_file = results_dir / f"{cam_name}_{start_time.strftime('%Y-%m-%d_%I.%M.%S%p')}_raw.mp4" 
     
     # Concate segments into .mp4
     concat_cmd = [
