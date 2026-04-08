@@ -154,3 +154,115 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
 
     # Cleanup temp directory
     shutil.rmtree(episode_temp_dir)
+
+def recording_mode_recorder(cam, timestamp, save_mp4, delete_segments, results_dir, stop):
+
+    ## Subdirectory creation
+    output_dir = results_dir / timestamp.strftime("%Y-%m-%d_%I.%M.%S%p")
+    segment_dir = output_dir / "segments" / cam.name
+
+    for path in [output_dir, segment_dir]:
+        path.mkdir(parents=True, exist_ok=True)
+
+    # Start ffmpeg segment recorder (copy mode)
+    recorder = [
+        "ffmpeg",
+        "-rtsp_transport", "tcp",
+        "-use_wallclock_as_timestamps", "1",
+        "-fflags", "+genpts",
+        "-i", cam.url,
+        "-an",
+        "-c:v", "copy",
+        "-f", "segment",
+        "-segment_time", str(SEGMENT_TIME),
+        "-segment_format", "mpegts",
+        "-reset_timestamps", "1",
+        str(segment_dir / "seg%d.ts")
+    ]
+
+    print(f"{cam.name} recorder running")
+    rec = subprocess.Popen(recorder, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+
+    try:
+        while not stop.is_set():
+            time.sleep(0.5)
+    finally:
+        print(f"[{cam.name}] Shutting down.")
+        rec.terminate()
+
+        # give filesystem time to finish final segment
+        time.sleep(0.5)
+
+        # Concatenate segments if user chose to
+        if save_mp4:
+            result = recording_mode_finalizer(cam, timestamp, output_dir, segment_dir)
+            if result:
+                concat, concat_file = result
+
+                print(f"{cam.name} concatenator running")
+                result = subprocess.run(concat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+
+                if result.returncode == 0:
+                    # delete concat.txt
+                    try:
+                        concat_file.unlink()
+                    except Exception as e:
+                        print(f"{cam.name} failed to delete concat.txt: {e}")
+
+                    # Delete segments folder after concatenation if user chose to
+                    if delete_segments:
+                        shutil.rmtree(segment_dir)
+
+                        # try to clean up /segments/
+                        try:
+                            if not any(segment_dir.parent.iterdir()):
+                                segment_dir.parent.rmdir()
+                        except Exception:
+                            pass
+
+                else:
+                    print(f"{cam.name} mp4 failed, keeping segments despite settings")
+            else:
+                print(f"Warning: concatenation failed")
+
+        try:
+            rec.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            print(f"[{cam.name}] ffmpeg didn't exit, killing...")
+            rec.kill()
+
+
+def recording_mode_finalizer(cam, timestamp, output_dir, segment_dir):
+
+    final_dir = output_dir / "final"
+    final_dir.mkdir(parents=True, exist_ok=True)
+
+    # Store all segment files currently in the segment folder, sorted by their segment number
+    segments = sorted(segment_dir.glob("seg*.ts"), key=lambda p: int(p.stem[3:]))  # strips "seg" prefix, parses remainder as int
+
+    if not segments:
+        print(f"Warning: no segments found for {cam.name}, skipping episode")
+        return None
+    
+    # Build concat list out of present segments, used by FFmpeg to concatenate segments into one video
+    concat_file = segment_dir / "concat.txt"
+    with open(concat_file, "w") as f:
+        for seg in segments:
+            f.write(f"file '{seg.name}'\n")
+
+    # Output episode named with camera id and detection timestamp
+    output_file = final_dir / f"{cam.name}_{timestamp.strftime('%Y-%m-%d_%I.%M.%S%p')}.mp4"
+    
+    concatenator = [
+        "ffmpeg",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", str(concat_file),
+        "-c", "copy",
+        str(output_file)
+    ]
+
+    return concatenator, concat_file
+    
+
+

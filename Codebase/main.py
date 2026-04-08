@@ -3,6 +3,8 @@ import sys
 import threading
 import queue
 import time
+import enum
+import json
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
@@ -11,6 +13,12 @@ import detection
 import visual_capture
 import visual_analysis
 
+# Enum for different system modes
+class Mode(enum.Enum):
+    DETECTION = enum.auto()
+    RECORDING = enum.auto()
+    DEBUG = enum.auto()
+
 # Camera dataclass, holds a camera's id number, user-defined name, and RTSP url
 @dataclass
 class Camera:
@@ -18,8 +26,12 @@ class Camera:
     name: str
     url: str
 
-if __name__ == "__main__":
+current_mode = None
 
+def run_detection_mode(stop_event):
+
+    threads = []
+    
     # Verify weights file exists in the right path before doing any work, if not close with error
     WEIGHTS_DIR = Path("Weights")
     if not os.path.exists(WEIGHTS_DIR) or not any(WEIGHTS_DIR.iterdir()):
@@ -39,10 +51,11 @@ if __name__ == "__main__":
 #        Camera(id=0, name="cam0", url="rtsp://admin:123456@10.0.0.11:554/profile1"),   # main (highest quality) feed
 #        Camera(id=1, name="cam1", url="rtsp://admin:123456@10.0.0.11:554/profile2"),   # sub (low quality) feed
 #        Camera(id=2, name="cam2", url="rtsp://admin:123456@10.0.0.11:554/profile3"),   # third (lowest quality) feed
-        Camera(id=3, name="cam3", url="rtsp://localhost:8554/desktop")                 # desktop stream feed
+        Camera(id=3, name="cam3", url="rtsp://localhost:8554/desktop"),                 # desktop stream feed
+        Camera(id=4, name="cam4", url="rtsp://localhost:8554/desktop")
     ]
 
-    BUFFER_LENGTH = 15       # Pre-trigger recording time in seconds
+    BUFFER_LENGTH = 3       # Pre-trigger recording time in seconds
 
     # Set these once calibrated for each camera's ground plane.
     # Order: top-left, top-right, bottom-right, bottom-left.
@@ -72,9 +85,6 @@ if __name__ == "__main__":
     detection_queues = {cam.id:queue.Queue() for cam in CAMERAS}
     analysis_queue = queue.Queue()
 
-    stop_event = threading.Event()
-    threads = []
-
     # Start the main detection thread
     detection_thread = threading.Thread(
         target=detection.squirrel_detector,
@@ -95,14 +105,61 @@ if __name__ == "__main__":
         threads.append(t0)
         threads.append(t1)
 
-    # Start the analysis worker thread (processes one video at a time, sequentially)
-    analysis_thread = threading.Thread(
-        target=visual_analysis.analysis_worker,
-        args=(analysis_queue, daily_dir, MODEL_PATH, SOURCE_POINTS, stop_event),
-        daemon=True
-    )
-    analysis_thread.start()
-    threads.append(analysis_thread)
+    # # Start the analysis worker thread (processes one video at a time, sequentially)
+    # analysis_thread = threading.Thread(
+    #     target=visual_analysis.analysis_worker,
+    #     args=(analysis_queue, daily_dir, MODEL_PATH, SOURCE_POINTS, stop_event),
+    #     daemon=True
+    # )
+    # analysis_thread.start()
+    # threads.append(analysis_thread)
+
+    return threads
+
+def run_recording_mode(stop_event):
+
+    threads = []
+
+    CAMERAS = [               # Camera class objects
+#        Camera(id=0, name="cam0", url="rtsp://admin:123456@10.0.0.11:554/profile1"),   # main (highest quality) feed
+#        Camera(id=1, name="cam1", url="rtsp://admin:123456@10.0.0.11:554/profile2"),   # sub (low quality) feed
+#        Camera(id=2, name="cam2", url="rtsp://admin:123456@10.0.0.11:554/profile3"),   # third (lowest quality) feed
+        Camera(id=3, name="cam3", url="rtsp://localhost:8554/desktop"),                 # desktop stream feed
+        Camera(id=4, name="cam4", url="rtsp://localhost:8554/desktop")
+    ]
+
+    SAVE_MP4 = True
+    DELETE_SEGMENTS = True
+
+    ####################### Directory setup #######################
+    # Level 1 directory
+    rec_mode_dir = Path("recordings")
+    rec_mode_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now()
+    for cam in CAMERAS:
+        t = threading.Thread(target=visual_capture.recording_mode_recorder, args=(cam, timestamp, SAVE_MP4, DELETE_SEGMENTS, rec_mode_dir, stop_event))
+        t.start()
+        threads.append(t)
+
+    return threads
+
+
+if __name__ == "__main__":
+
+    stop_event = threading.Event()
+    threads = []
+
+    DEFAULT_MODE = Mode.RECORDING
+    current_mode = DEFAULT_MODE
+
+    
+    if current_mode == Mode.DETECTION:
+        threads = run_detection_mode(stop_event)
+    elif current_mode == Mode.RECORDING:
+        threads = run_recording_mode(stop_event)
+    # elif current_mode == Mode.DEBUG:
+    #     threads = run_debug_mode(stop_event)
 
     #######################  Testing ########################
     print("System is running")
