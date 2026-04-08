@@ -86,7 +86,7 @@ def episode_recorder(cam, detection_queue, capture_dir, results_dir, buf_len, st
 
             # Rolling video storage when NOT in episode, deletes oldest segments until segments.length <= max_segments
             if not episode_active:
-                segments = sorted(buffer_dir.glob("seg*.ts"), key=lambda p: p.stat().st_mtime)
+                segments = sorted(buffer_dir.glob("seg*.ts"), key=lambda p: int(p.stem[3:]))
                 finished_segments = segments[:-1]    # Avoid deleting newest segment since it may be actively under writing
                 # Only delete if there are more than max_segments, if so delete oldest excess segments all at once
                 excess = len(finished_segments) - max_segments
@@ -112,11 +112,15 @@ def episode_recorder(cam, detection_queue, capture_dir, results_dir, buf_len, st
 
 def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time):
 
-    # Store all segment files currently in the buffer folder, sorted by their modification time
-    segments = sorted(buffer_dir.glob("seg*.ts"), key=lambda p: p.stat().st_mtime)
-
     # Give FFmpeg a second to finish writing last segment (avoid concatenating an unfinished file)
     time.sleep(1)
+
+    # Store all segment files currently in the buffer folder, sorted by their segment number
+    segments = sorted(buffer_dir.glob("seg*.ts"), key=lambda p: int(p.stem[3:]))  # strips "seg" prefix, parses remainder as int
+
+    if not segments:
+        print(f"Warning: no segments found for {cam_name}, skipping episode")
+        return
 
     episode_temp_dir = episode_dir / start_time.strftime("%I.%M.%S%p")
     episode_temp_dir.mkdir(parents=True, exist_ok=True)
@@ -128,7 +132,7 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
     # Build concat list out of present segments, used by FFmpeg to concatenate segments into one video
     concat_file = episode_temp_dir / "concat.txt"
     with open(concat_file, "w") as f:
-        for seg in sorted(episode_temp_dir.glob("seg*.ts")):
+        for seg in sorted(episode_temp_dir.glob("seg*.ts"), key=lambda p: int(p.stem[3:])):
             f.write(f"file '{seg.name}'\n")
 
     # Output episode named with camera id and detection timestamp
