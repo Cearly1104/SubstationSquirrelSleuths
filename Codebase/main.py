@@ -4,7 +4,6 @@ import threading
 import queue
 import time
 import enum
-import json
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
@@ -160,6 +159,11 @@ if __name__ == "__main__":
         threads = run_recording_mode(stop_event)
     # elif current_mode == Mode.DEBUG:
     #     threads = run_debug_mode(stop_event)
+    else:
+        print("Mode invalid, shutting down...")
+        stop_event.set()
+        exit(1)
+        
 
     #######################  Testing ########################
     print("System is running")
