@@ -4,6 +4,7 @@ import threading
 import queue
 import time
 import enum
+import json
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
@@ -27,7 +28,72 @@ class Camera:
 
 current_mode = None
 
-def run_detection_mode(stop_event):
+# Load json contents from settings.json file at root
+def load_settings(path="settings.json"):
+    with open(path, "r") as f:
+        settings = json.load(f)
+    return settings
+
+# Ensure json contents are valid
+def validate_settings(settings):
+    required_params = ["default_mode", "modes", "cameras",]
+
+    for param in required_params:
+        if param not in settings:
+            raise ValueError(f"Missing required parameter: {param} in settings.json")
+        
+    if settings["default_mode"] not in settings["modes"]:
+        raise ValueError("Default mode doesn't exist in settings.json's modes list")
+    
+    # Validate each camera field's parameters
+    for cam_cfg in settings["cameras"]:
+        cam_id = cam_cfg.get("id", "unknown")
+
+        # Validate enabled field is a boolean if present
+        enabled = cam_cfg.get("enabled")
+        if enabled is not None and not isinstance(enabled, bool):
+            raise ValueError(f"Camera id:{cam_id} has a non-boolean 'enabled' field in settings.json")
+
+        # Validate URL exists
+        url = cam_cfg.get("url")
+        if not url:
+            raise ValueError(f"Camera id:{cam_id} is missing a URL in settings.json")
+    
+    
+# Bulid camera list from json contents
+def build_cameras(settings):
+    cameras = []
+
+    for cam_cfg in settings["cameras"]:
+        if cam_cfg.get("enabled", True):
+
+            # Save name as either name field, or cam{id} if name field doesnt exist
+            name = cam_cfg.get("name", f"cam{cam_cfg['id']}")
+            url = cam_cfg["url"]
+            auth = cam_cfg.get("auth", {})
+            un_env = auth.get("username_env")
+            pw_env = auth.get("password_env")
+
+            # if username and password env var fields are set, insure the env vars exist and insert them into the rtsp feed url
+            if un_env and pw_env:
+                username = os.environ.get(un_env)
+                password = os.environ.get(pw_env)
+
+                if not username or not password:
+                    raise EnvironmentError(f"Camera '{cam_cfg['name']}' requires env vars '{un_env}' and '{pw_env}', but one or both are not set.")
+
+                # Add "username:password@" into the rtsp url if the camera has a set password
+                url = url.replace("rtsp://", f"rtsp://{username}:{password}@")
+
+            cameras.append(Camera(id=cam_cfg["id"], name=name, url=url))
+
+    if not cameras:
+        raise ValueError("No cameras enabled in settings.json")
+
+    return cameras
+    
+    
+def run_detection_mode(settings, stop_event):
 
     threads = []
     
@@ -39,55 +105,56 @@ def run_detection_mode(stop_event):
         
 
     ########################## Settings ###########################
+    cfg = settings["modes"]["DETECTION"]
 
-    MODEL_NAME = "best.pt"
-    MODEL_PATH = WEIGHTS_DIR / MODEL_NAME
-    DETECTION_FPS = 10
-    DETECTION_CONFIDENCE = 0.10
-    FROZEN_THRESHOLD = 1.0
+    CAMERAS = build_cameras(settings)
 
-    CAMERAS = [               # Camera class objects
-#        Camera(id=0, name="cam0", url="rtsp://admin:123456@10.0.0.11:554/profile1"),   # main (highest quality) feed
-#        Camera(id=1, name="cam1", url="rtsp://admin:123456@10.0.0.11:554/profile2"),   # sub (low quality) feed
-#        Camera(id=2, name="cam2", url="rtsp://admin:123456@10.0.0.11:554/profile3"),   # third (lowest quality) feed
-        Camera(id=3, name="cam3", url="rtsp://localhost:8554/desktop"),                 # desktop stream feed
-        Camera(id=4, name="cam4", url="rtsp://localhost:8554/desktop")
-    ]
+    # Detection system settings
+    detection_cfg = {
+        "model_path": WEIGHTS_DIR / cfg["model_name"],
+        "detection_fps": cfg["detection_fps"],
+        "detection_confidence": cfg["detection_confidence"],
+        "frozen_camera_threshold": cfg["frozen_camera_threshold"],
+        "save_annotated": cfg["save_annotated"]
+    }
 
-    BUFFER_LENGTH = 3       # Pre-trigger recording time in seconds
+    # Capture system settings
+    capture_cfg = {
+        "rolling_buffer_length": cfg["rolling_buffer_length"],
+        "segment_time": cfg["segment_time"]
+    }
 
-    # Set these once calibrated for each camera's ground plane.
-    # Order: top-left, top-right, bottom-right, bottom-left.
-    SOURCE_POINTS = None  # e.g. [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+    # Analysis system settings
+    analysis_cfg = {
+        "model_path": WEIGHTS_DIR / cfg["model_name"],
+        "source_points": cfg["source_points"],
+        "plane_width_m": cfg["plane_width_m"],
+        "plane_height_m": cfg["plane_height_m"],
+        "pixels_per_meter": cfg["pixels_per_meter"]
+    }
 
     ####################### Directory setup #######################
-    # Level 1 directory
     det_mode_dir = Path("detections")
-
-    # Level 2 directories
     temp_dir = det_mode_dir / "temp"
     daily_dir = det_mode_dir / datetime.now().strftime("%Y-%m-%d")
-
-    # Level 3 directories
     detection_dir = temp_dir / "detection"
     capture_dir = temp_dir / "capture"
     analysis_dir = temp_dir / "analysis"
 
-    # Create all directories at once
     for path in [det_mode_dir, temp_dir, daily_dir, detection_dir, capture_dir, analysis_dir]:
         path.mkdir(parents=True, exist_ok=True)
 
     ####################### Process Setup ########################
     ## Multithreading Queues 
     # One detection queue per camera, signals capture system to start recording
-    # Analysis queue - episode videos are submitted here after finalization
+    # Analysis queue - episode video paths are submitted here after finalization
     detection_queues = {cam.id:queue.Queue() for cam in CAMERAS}
     analysis_queue = queue.Queue()
 
     # Start the main detection thread
     detection_thread = threading.Thread(
         target=detection.squirrel_detector,
-        args=(CAMERAS, detection_queues, analysis_queue, detection_dir, MODEL_PATH, FROZEN_THRESHOLD, DETECTION_CONFIDENCE, DETECTION_FPS, stop_event)
+        args=(CAMERAS, detection_cfg, detection_dir, detection_queues, analysis_queue, stop_event)
     )
     detection_thread.start()
     threads.append(detection_thread)
@@ -96,7 +163,7 @@ def run_detection_mode(stop_event):
     for cam in CAMERAS:
         t0 = threading.Thread(target=detection.detection_helper, args=(cam, stop_event))
         t1 = threading.Thread(target=visual_capture.episode_recorder,
-            args=(cam, detection_queues[cam.id], capture_dir, daily_dir, BUFFER_LENGTH, stop_event))
+            args=(cam, capture_cfg, capture_dir, daily_dir, detection_queues[cam.id], stop_event))
         
         t0.start()
         t1.start()
@@ -107,7 +174,7 @@ def run_detection_mode(stop_event):
     # # Start the analysis worker thread (processes one video at a time, sequentially)
     # analysis_thread = threading.Thread(
     #     target=visual_analysis.analysis_worker,
-    #     args=(analysis_queue, daily_dir, MODEL_PATH, SOURCE_POINTS, stop_event),
+    #     args=(analysis_cfg, daily_dir, analysis_queue, stop_event),
     #     daemon=True
     # )
     # analysis_thread.start()
@@ -115,29 +182,28 @@ def run_detection_mode(stop_event):
 
     return threads
 
-def run_recording_mode(stop_event):
+def run_recording_mode(settings, stop_event):
 
     threads = []
 
-    CAMERAS = [               # Camera class objects
-#        Camera(id=0, name="cam0", url="rtsp://admin:123456@10.0.0.11:554/profile1"),   # main (highest quality) feed
-#        Camera(id=1, name="cam1", url="rtsp://admin:123456@10.0.0.11:554/profile2"),   # sub (low quality) feed
-#        Camera(id=2, name="cam2", url="rtsp://admin:123456@10.0.0.11:554/profile3"),   # third (lowest quality) feed
-        Camera(id=3, name="cam3", url="rtsp://localhost:8554/desktop"),                 # desktop stream feed
-        Camera(id=4, name="cam4", url="rtsp://localhost:8554/desktop")
-    ]
+    ########################## Settings ###########################
+    cfg = settings["modes"]["RECORDING"]
 
-    SAVE_MP4 = True
-    DELETE_SEGMENTS = True
+    CAMERAS = build_cameras(settings)
+
+    capture_cfg = {
+        "save_mp4": cfg["save_mp4"],
+        "delete_segments": cfg["delete_segments"],
+        "segement_time": cfg["segment_time"]
+    }
 
     ####################### Directory setup #######################
-    # Level 1 directory
     rec_mode_dir = Path("recordings")
     rec_mode_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now()
     for cam in CAMERAS:
-        t = threading.Thread(target=visual_capture.recording_mode_recorder, args=(cam, timestamp, SAVE_MP4, DELETE_SEGMENTS, rec_mode_dir, stop_event))
+        t = threading.Thread(target=visual_capture.recording_mode_recorder, args=(cam, capture_cfg, timestamp, rec_mode_dir, stop_event))
         t.start()
         threads.append(t)
 
@@ -146,17 +212,18 @@ def run_recording_mode(stop_event):
 
 if __name__ == "__main__":
 
+    settings = load_settings()
+    validate_settings(settings)
+
     stop_event = threading.Event()
     threads = []
 
-    DEFAULT_MODE = Mode.RECORDING
-    current_mode = DEFAULT_MODE
-
+    current_mode = Mode[settings["default_mode"]]
     
     if current_mode == Mode.DETECTION:
-        threads = run_detection_mode(stop_event)
+        threads = run_detection_mode(settings, stop_event)
     elif current_mode == Mode.RECORDING:
-        threads = run_recording_mode(stop_event)
+        threads = run_recording_mode(settings, stop_event)
     # elif current_mode == Mode.DEBUG:
     #     threads = run_debug_mode(stop_event)
     else:

@@ -3,9 +3,7 @@ import subprocess
 import shutil
 import queue
 
-SEGMENT_TIME = 1
-
-def episode_recorder(cam, detection_queue, capture_dir, results_dir, buf_len, stop):
+def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, stop):
 
     ## Subdirectory Creation
     # Level 1 capture subdirectories
@@ -27,7 +25,7 @@ def episode_recorder(cam, detection_queue, capture_dir, results_dir, buf_len, st
         except Exception as e:
             print(f"[{cam.name}] Failed to delete segment {seg}: {e}")
 
-    max_segments = int(buf_len / SEGMENT_TIME)
+    max_segments = int(config["rolling_buffer_length"] / config["segment_time"])
 
     # Start ffmpeg segment recorder (copy mode)
     buffer = [
@@ -39,7 +37,7 @@ def episode_recorder(cam, detection_queue, capture_dir, results_dir, buf_len, st
         "-an",
         "-c:v", "copy",
         "-f", "segment",
-        "-segment_time", str(SEGMENT_TIME),
+        "-segment_time", str(config["segment_time"]),
         "-reset_timestamps", "1",
         str(buffer_dir / "seg%d.ts")
     ]
@@ -150,12 +148,12 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
 
     subprocess.run(concat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
-    print(f"[{cam_name}] Episode saved → {output_file}")
+    print(f"[{cam_name}] Episode saved -> {output_file}")
 
     # Cleanup temp directory
     shutil.rmtree(episode_temp_dir)
 
-def recording_mode_recorder(cam, timestamp, save_mp4, delete_segments, results_dir, stop):
+def recording_mode_recorder(cam, config, timestamp, results_dir, stop):
 
     ## Subdirectory creation
     output_dir = results_dir / timestamp.strftime("%Y-%m-%d_%I.%M.%S%p")
@@ -174,7 +172,7 @@ def recording_mode_recorder(cam, timestamp, save_mp4, delete_segments, results_d
         "-an",
         "-c:v", "copy",
         "-f", "segment",
-        "-segment_time", str(SEGMENT_TIME),
+        "-segment_time", str(config["segment_time"]),
         "-segment_format", "mpegts",
         "-reset_timestamps", "1",
         str(segment_dir / "seg%d.ts")
@@ -194,7 +192,7 @@ def recording_mode_recorder(cam, timestamp, save_mp4, delete_segments, results_d
         time.sleep(0.5)
 
         # Concatenate segments if user chose to
-        if save_mp4:
+        if config["save_mp4"]:
             result = recording_mode_finalizer(cam, timestamp, output_dir, segment_dir)
             if result:
                 concat, concat_file = result
@@ -210,7 +208,7 @@ def recording_mode_recorder(cam, timestamp, save_mp4, delete_segments, results_d
                         print(f"{cam.name} failed to delete concat.txt: {e}")
 
                     # Delete segments folder after concatenation if user chose to
-                    if delete_segments:
+                    if config["delete_segments"]:
                         shutil.rmtree(segment_dir)
 
                         # try to clean up /segments/

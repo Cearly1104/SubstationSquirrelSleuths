@@ -71,7 +71,7 @@ def batch_frames(cameras, frozen_threshold):
 # Main detection function, takes fresh frames from helper->batch functions and processes them with a YOLO model
 # Model outputs squirrel detections and prompts the capture system to record squirrel detection episodes
 # Detection logs are taken and annotated processed frames are stored for analysis system usage, prompted by episode write completion
-def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, model_path, frozen_threshold, confidence, fps, stop):
+def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis_queue, stop):
 
     cam_lookup = {cam.id: cam for cam in cameras}
 
@@ -82,10 +82,9 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
             "timestamp": None,
             "last_update": 0,
             "lock": threading.Lock(),
-            "consecutive_frames": 0
         }
 
-    model = YOLO(model_path)
+    model = YOLO(config["model_path"])
 
     # Initialize and keep track of each camera's episode status
     episode_state = {
@@ -94,6 +93,7 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
             "last_detection_time": None,
             "episode_dir": None,
             "episode_writer": None,
+            "annotated_writer": None,
             "detection_streak": 0,
             "no_detection_streak": 0
         }
@@ -112,7 +112,7 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
         while not stop.is_set():
             loop_start = time.time()
 
-            batch = batch_frames(cameras, frozen_threshold)
+            batch = batch_frames(cameras, config["frozen_camera_threshold"])
 
             if not batch:
                 time.sleep(0.01)
@@ -121,7 +121,7 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
             # Pull only frames to be passed in as the model's input
             # Done by unpacking the batch tuple into just a list of frames
             frames = [frame for _, frame, _ in batch]
-            results = model(frames, conf=confidence, verbose=False)
+            results = model(frames, conf=config["detection_confidence"], verbose=False)
 
             # Loop over each result, comparing and updating episode status as appropriate
             for i, (cam_id, frame, timestamp) in enumerate(batch):
@@ -150,12 +150,20 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
                         episode_dir.mkdir(parents=True, exist_ok=True)
                         state["episode_dir"] = episode_dir
 
-                        # Open an OpenCV VideoWriter to write processed frames into an mp4 for analysis input
+                        # Open an OpenCV VideoWriter to write raw processed frames into an mp4 for analysis input
                         h, w = result.orig_img.shape[:2]
                         state["episode_writer"] = cv2.VideoWriter(
                             str(episode_dir / "_raw.mp4"),
                             cv2.VideoWriter_fourcc(*"mp4v"),
-                            fps,
+                            config["detection_fps"],
+                            (w, h)
+                        )
+                        # If enabled, do the same but for an annotated video output
+                        if config["save_annotated"]:
+                            state["annotated_writer"] = cv2.VideoWriter(
+                            str(episode_dir / "_untracked.mp4"),
+                            cv2.VideoWriter_fourcc(*"mp4v"),
+                            config["detection_fps"],
                             (w, h)
                         )
 
@@ -175,10 +183,14 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
                             # TODO remove
                             print(f"End episode {state['episode_dir']} (cam {cam_id})")
 
-                            # Release VideoWriter and pass completed episode to analysis
+                            # Release VideoWriter(s) and pass completed episode to analysis
                             if state["episode_writer"] is not None:
                                 state["episode_writer"].release()
                                 state["episode_writer"] = None
+
+                            if state["annotated_writer"] is not None:
+                                state["annotated_writer"].release()
+                                state["annotated_writer"] = None
 
                             clip_path = state["episode_dir"] / "_raw.mp4"
                             if clip_path.exists() and clip_path.stat().st_size > 0:
@@ -195,22 +207,25 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
                             state["in_episode"] = False
                             state["episode_dir"] = None
 
-                # Write processed frame to output folder
-                if state["in_episode"] and state["episode_writer"] is not None:
-                    state["episode_writer"].write(frame)
+                # Write processed frame(s) to output folder
+                if state["in_episode"]:
+                    if state["episode_writer"] is not None:
+                        state["episode_writer"].write(frame)
+                    if state["annotated_writer"] is not None:
+                        state["annotated_writer"].write(result.plot())
 
-            #TODO remove these window lines for headless deployment
-                cv2.imshow(cam_name, result.plot())
-            # Press 'q' in the window to exit
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                print("Pressed q — exiting.")
-                break
+            # #TODO remove these window lines for headless deployment
+            #     cv2.imshow(cam_name, result.plot())
+            # # Press 'q' in the window to exit
+            # if cv2.waitKey(1) & 0xFF == ord('q'):
+            #     print("Pressed q — exiting.")
+            #     break
 
             # Processing FPS controlled by looping at intervals of 1/fps
             # If loop was faster than 1/fps, wait for (1/fps - (Loop end time - start time)) seconds
             elapsed = time.time() - loop_start
-            if elapsed < 1/fps:
-                time.sleep(1/fps - elapsed)
+            if elapsed < 1/config["detection_fps"]:
+                time.sleep(1/config["detection_fps"] - elapsed)
         
     # Release writers on shutdown
     finally:
@@ -221,3 +236,6 @@ def squirrel_detector(cameras, detection_queues, analysis_queue, detection_dir, 
             if state["episode_writer"] is not None:
                 state["episode_writer"].release()
                 state["episode_writer"] = None
+            if state["annotated_writer"] is not None:
+                state["annotated_writer"].release()
+                state["annotated_writer"] = None

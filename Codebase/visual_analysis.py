@@ -72,7 +72,7 @@ def _order_points(pts):
 
 # ========================== Analysis Worker ==========================
 
-def analysis_worker(analysis_queue, analysis_dir, model_path, source_points, stop):
+def analysis_worker(config, analysis_dir, analysis_queue, stop):
     """Watches for completed episode videos and runs sequential analysis on each."""
     while not stop.is_set():
 
@@ -89,8 +89,8 @@ def analysis_worker(analysis_queue, analysis_dir, model_path, source_points, sto
             run_analysis(
                 video_path=video_path,
                 output_dir=str(analysis_dir),
-                model_path=str(model_path),
-                source_points=source_points,
+                model_path=str(config["model_path"]),
+                source_points=config["source_points"],
             )
         except Exception as e:
             print(f"[analysis] Error processing {video_path}: {e}")
