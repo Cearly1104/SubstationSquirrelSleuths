@@ -5,6 +5,7 @@ import queue
 import time
 import enum
 import json
+import platform
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
@@ -151,6 +152,15 @@ def run_detection_mode(settings, stop_event):
     detection_queues = {cam.id:queue.Queue() for cam in CAMERAS}
     analysis_queue = queue.Queue()
 
+    # Initialize camera frame states here to avoid race condition
+    for cam in CAMERAS:
+            detection.states[cam.id] = {
+                "frame": None,
+                "timestamp": None,
+                "last_update": 0,
+                "lock": threading.Lock()
+            }
+
     # Start the main detection thread
     detection_thread = threading.Thread(
         target=detection.squirrel_detector,
@@ -189,17 +199,47 @@ def run_recording_mode(settings, stop_event):
     ########################## Settings ###########################
     cfg = settings["modes"]["RECORDING"]
 
-    CAMERAS = build_cameras(settings)
+    detection_cfg = {
+        "run_detection_window": cfg["run_detection_window"],
+        "model_path": Path("Weights") / cfg["model_name"],
+        "detection_fps": cfg["detection_fps"],
+        "detection_confidence": cfg["detection_confidence"],
+        "frozen_camera_threshold": cfg["frozen_camera_threshold"],
+        "save_annotated": cfg["save_annotated"]
+    }
 
     capture_cfg = {
         "save_mp4": cfg["save_mp4"],
         "delete_segments": cfg["delete_segments"],
-        "segement_time": cfg["segment_time"]
+        "segment_time": cfg["segment_time"],
     }
+
+    if detection_cfg["run_detection_window"] is True:
+        # Verify weights file exists in the right path before doing any work, if not close with error
+        WEIGHTS_DIR = Path("Weights")
+        if not os.path.exists(WEIGHTS_DIR) or not any(WEIGHTS_DIR.iterdir()):
+            print("Recording mode detection enabled, but model weights not found, stopping process...")
+            sys.exit(1)
+        # Verify system isn't headless when detection window is enabled, if it is, close with error
+        if platform.system() == "Linux" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+            print("Recording mode detection window enabled, but no display found, stopping process...")
+            sys.exit(1)
+
+    CAMERAS = build_cameras(settings)
+
 
     ####################### Directory setup #######################
     rec_mode_dir = Path("recordings")
     rec_mode_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize camera frame states here to avoid race condition
+    for cam in CAMERAS:
+            detection.states[cam.id] = {
+                "frame": None,
+                "timestamp": None,
+                "last_update": 0,
+                "lock": threading.Lock()
+            }
 
     timestamp = datetime.now()
     for cam in CAMERAS:
@@ -207,7 +247,17 @@ def run_recording_mode(settings, stop_event):
         t.start()
         threads.append(t)
 
+    if detection_cfg["run_detection_window"]:
+        t1 = threading.Thread(target=detection.recording_mode_detector, args=(CAMERAS, detection_cfg, timestamp, rec_mode_dir, stop_event))
+        t1.start()
+        threads.append(t1)
+        for cam in CAMERAS:
+            t2 = threading.Thread(target=detection.detection_helper, args=(cam, stop_event))
+            t2.start()
+            threads.append(t2)
+        
     return threads
+
 
 
 if __name__ == "__main__":

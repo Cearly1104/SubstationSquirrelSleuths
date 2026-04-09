@@ -1,5 +1,5 @@
 {
-  "default_mode": "DETECTION",
+  "default_mode": "RECORDING",
 
   "modes": {
     "DETECTION": {
@@ -22,8 +22,15 @@
     "RECORDING": {
       "enabled": true,
       "save_mp4": true,
-      "delete_segments": true,
-      "segment_time": 1
+      "delete_segments": false,
+      "segment_time": 1,
+
+      "run_detection_window": true,
+      "model_name": "best.pt",
+      "detection_fps": 10,
+      "detection_confidence": 0.10,
+      "frozen_camera_threshold": 1.0,
+      "save_annotated": true
     },
 
     "DEBUG": {
@@ -67,6 +74,16 @@
       "enabled": true,
       "id": 3,
       "name": "cam3",
+      "url": "rtsp://localhost:8554/desktop",
+      "auth": {
+        "username_env": null,
+        "password_env": null
+      }
+    },
+    {
+      "enabled": true,
+      "id": 4,
+      "name": "cam4",
       "url": "rtsp://localhost:8554/desktop",
       "auth": {
         "username_env": null,

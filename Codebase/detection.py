@@ -1,9 +1,8 @@
 from ultralytics import YOLO
 import cv2
-import os
 import threading
 import time
-import queue
+import torch
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -74,15 +73,6 @@ def batch_frames(cameras, frozen_threshold):
 def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis_queue, stop):
 
     cam_lookup = {cam.id: cam for cam in cameras}
-
-    # Initialize camera frame states
-    for cam in cameras:
-        states[cam.id] = {
-            "frame": None,
-            "timestamp": None,
-            "last_update": 0,
-            "lock": threading.Lock(),
-        }
 
     model = YOLO(config["model_path"])
 
@@ -239,3 +229,62 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
             if state["annotated_writer"] is not None:
                 state["annotated_writer"].release()
                 state["annotated_writer"] = None
+
+# Episode-less detection for RECORDING mode, only serves to see detection window(s) when run_detection_window setting is enabled
+def recording_mode_detector(cameras, config, timestamp, output_dir, stop):
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = YOLO(config["model_path"]).to(device)
+    print(f"Recording mode detection window running on {device}")
+
+    writers = {}
+    if config["save_annotated"]:
+        for cam in cameras:
+            cam_dir = output_dir / timestamp.strftime("%Y-%m-%d_%I.%M.%S%p") / "final"
+            cam_dir.mkdir(parents=True, exist_ok=True)
+            writers[cam.id] = None
+
+    try:
+        while not stop.is_set():
+            loop_start = time.time()
+
+            batch = batch_frames(cameras, config["frozen_camera_threshold"])
+            if not batch:
+                time.sleep(0.01)
+                continue
+
+            frames = [frame for _, frame, _ in batch]
+            results = model(frames, conf=config["detection_confidence"], verbose=False)
+
+            for i, (cam_id, _, _) in enumerate(batch):
+                cam_name = next(cam.name for cam in cameras if cam.id == cam_id)
+                annotated = results[i].plot()
+
+                if config["run_detection_window"]:
+                    cv2.imshow(f"Detection - {cam_name}", annotated)
+
+                if config["save_annotated"]:
+                    if writers[cam_id] is None:
+                        h, w = annotated.shape[:2]
+                        final_dir = output_dir / timestamp.strftime("%Y-%m-%d_%I.%M.%S%p") / "final"
+                        writers[cam_id] = cv2.VideoWriter(
+                            str(final_dir / f"{cam_name}_{timestamp.strftime('%Y-%m-%d_%I.%M.%S%p')}_annotated.mp4"),
+                            cv2.VideoWriter_fourcc(*"mp4v"),
+                            config["detection_fps"],
+                            (w, h)
+                        )
+                    writers[cam_id].write(annotated)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+            elapsed = time.time() - loop_start
+            if elapsed < 1 / config["detection_fps"]:
+                time.sleep(1 / config["detection_fps"] - elapsed)
+
+    finally:
+        if config["run_detection_window"]:
+            cv2.destroyAllWindows()
+        for writer in writers.values():
+            if writer is not None:
+                writer.release()
