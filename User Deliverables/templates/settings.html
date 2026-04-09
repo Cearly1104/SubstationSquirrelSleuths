@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block extra_style %}
+.panel{
+  margin:14px 0 18px;padding:16px;border:1px solid var(--line);border-radius:18px;
+  background:#182026;
+}
+.panel p{margin:6px 0 0;color:var(--muted);line-height:1.5}
+.path{
+  display:inline-block;font-family:var(--font-mono);font-size:.82rem;
+  background:#11161a;border:1px solid var(--line);border-radius:8px;
+  padding:3px 8px;color:var(--ink);
+}
+.banner{
+  margin:12px 0;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+  font-size:.92rem;line-height:1.45;
+}
+.banner.error{border-color:#7a2a2a;background:#2a1414;color:#ffb4b4}
+.banner.success{border-color:#2a5a3a;background:#142a1c;color:#b4ffcc}
+.banner.info{border-color:#2a4a6a;background:#142030;color:#b4d4ff}
+.banner strong{font-family:var(--font-head);display:block;margin-bottom:2px}
+.editor{
+  width:100%;min-height:520px;resize:vertical;
+  font-family:var(--font-mono);font-size:.86rem;line-height:1.45;
+  background:#0c1014;color:var(--ink);
+  border:1px solid var(--line);border-radius:12px;padding:14px;
+  tab-size:2;
+}
+.editor:focus{outline:none;border-color:var(--accent)}
+.actions{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;align-items:center}
+.btn{
+  border:0;background:var(--accent);color:#fff;border-radius:999px;
+  padding:10px 18px;font-weight:700;font-size:.92rem;cursor:pointer;
+  font-family:var(--font-head);letter-spacing:.02em;
+}
+.btn:hover{filter:brightness(1.08)}
+.btn.secondary{background:#1f2930;border:1px solid var(--line);color:var(--ink)}
+.notice{
+  margin-top:14px;padding:10px 12px;border-left:3px solid var(--alert);
+  background:#1c1a14;border-radius:8px;color:var(--muted);font-size:.86rem;
+}
+{% endblock %}
+
+{% block body %}
+<main class="shell">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">SSS</div>
+      <div>
+        <h1>Substation Squirrel Sleuths</h1>
+        <div class="sub">Pipeline configuration</div>
+      </div>
+    </div>
+    <nav class="row">
+      <a class="pill" href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a class="pill" href="{{ url_for('archive') }}">Archive</a>
+      {% if is_admin %}
+      <a class="pill active" href="{{ url_for('settings_page') }}">Settings</a>
+      {% endif %}
+      <a class="pill" href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+  </header>
+
+  <section class="panel">
+    <h2>Pipeline Settings</h2>
+    <p>
+      Editing <span class="path">{{ settings_path }}</span> &mdash; the configuration
+      file read by the detection / recording pipeline at startup.  All fields are
+      editable.  Changes are validated before being saved.
+    </p>
+  </section>
+
+  {% if error %}
+  <div class="banner error">
+    <strong>Could not save</strong>
+    {{ error }}
+  </div>
+  {% endif %}
+
+  {% if success %}
+  <div class="banner success">
+    <strong>Saved</strong>
+    {{ success }}
+  </div>
+  {% endif %}
+
+  {% if info %}
+  <div class="banner info">
+    <strong>Heads up</strong>
+    {{ info }}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('settings_page') }}">
+    <textarea
+      class="editor"
+      name="settings_text"
+      spellcheck="false"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="off"
+      wrap="off">{{ settings_text }}</textarea>
+
+    <div class="actions">
+      <button type="submit" name="action" value="save" class="btn">Save Settings</button>
+      <a class="btn secondary" href="{{ url_for('settings_page') }}">Discard Changes</a>
+      {% if defaults_available %}
+      <button
+        type="submit"
+        name="action"
+        value="load_defaults"
+        class="btn secondary"
+        onclick="return confirm('Replace the editor contents with the factory defaults? Your unsaved changes will be lost. (Defaults will not be saved until you click Save Settings.)');">
+        Load Defaults
+      </button>
+      {% endif %}
+    </div>
+  </form>
+
+  <div class="notice">
+    Saved changes are written atomically, but the running pipeline only re-reads
+    settings.json at startup. To apply your changes, restart the detection
+    service on the device.
+  </div>
+</main>
+{% endblock %}

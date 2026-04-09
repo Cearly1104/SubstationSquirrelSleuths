@@ -17,6 +17,8 @@ from flask import (
     session, jsonify, send_from_directory, abort, Response
 )
 
+import settings_io
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -29,6 +31,22 @@ DATA_DIR = Path(os.environ.get("SSS_DATA_DIR", BASE_DIR / "data"))
 
 # Static demo assets (shipped with repo — training images, demo videos, etc.)
 DEMO_ASSETS_DIR = BASE_DIR / "assets"
+
+# Path to the Codebase pipeline's settings.json.  Default points at the
+# sibling Codebase/ directory in the dev repo layout; on the Jetson this
+# should be set explicitly via the SSS_SETTINGS_FILE env var.
+SETTINGS_FILE = Path(
+    os.environ.get("SSS_SETTINGS_FILE", BASE_DIR.parent / "Codebase" / "settings.json")
+)
+
+# Frozen "known good" defaults shipped alongside the pipeline.  Used by the
+# Settings page's "Load Defaults" button so admins can recover from a bad edit.
+SETTINGS_DEFAULTS_FILE = Path(
+    os.environ.get(
+        "SSS_SETTINGS_DEFAULTS",
+        BASE_DIR.parent / "Codebase" / "settings.default.json",
+    )
+)
 
 app = Flask(
     __name__,
@@ -52,7 +70,7 @@ def _load_accounts():
     if ACCOUNTS_FILE.is_file():
         with open(ACCOUNTS_FILE) as f:
             return json.load(f)
-    return [{"username": "admin", "password": "sss"}]
+    return [{"username": "admin", "password": "sss", "role": "admin"}]
 
 
 def _log_login_attempt(username, result):
@@ -85,6 +103,24 @@ def login_required(f):
             return redirect(url_for("login", next=request.path))
         return f(*args, **kwargs)
     return decorated
+
+
+def admin_required(f):
+    """Like login_required, but also requires the session to be an admin."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "user" not in session:
+            return redirect(url_for("login", next=request.path))
+        if session.get("role") != "admin":
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.context_processor
+def _inject_role():
+    """Make `is_admin` available to every template without passing it explicitly."""
+    return {"is_admin": session.get("role") == "admin"}
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +263,7 @@ def login():
         if match:
             _log_login_attempt(match["username"], "success")
             session["user"] = match["username"]
+            session["role"] = match.get("role", "user")
             next_page = request.args.get("next", url_for("dashboard"))
             return redirect(next_page)
         _log_login_attempt(username, "failure")
@@ -237,6 +274,7 @@ def login():
 @app.route("/logout")
 def logout():
     session.pop("user", None)
+    session.pop("role", None)
     return redirect(url_for("login"))
 
 
@@ -254,6 +292,71 @@ def dashboard():
         today_data=today_data,
         stats=stats,
         days=days,
+    )
+
+
+@app.route("/settings", methods=["GET", "POST"])
+@admin_required
+def settings_page():
+    """Admin-only editor for the Codebase pipeline's settings.json.
+
+    GET  — render the current settings.json contents in a textarea.
+    POST — parse, validate, and atomically save the submitted JSON.
+
+    Note: changes do not affect the running pipeline until it is restarted.
+    Mode-switching / live reload will be wired up in a later phase.
+    """
+    error = None
+    success = None
+    info = None
+    text = ""
+
+    if request.method == "POST":
+        action = request.form.get("action", "save")
+
+        if action == "load_defaults":
+            # Populate the editor with the frozen defaults but DO NOT save —
+            # the admin still has to click Save Settings to commit them.
+            try:
+                text = settings_io.load_text(SETTINGS_DEFAULTS_FILE)
+                info = (
+                    "Defaults loaded into the editor. Review them and click "
+                    "Save Settings to apply, or Discard Changes to cancel."
+                )
+            except settings_io.SettingsError as e:
+                error = f"Could not load defaults: {e}"
+                # Fall back to whatever is currently on disk so the editor
+                # isn't left blank.
+                try:
+                    text = settings_io.load_text(SETTINGS_FILE)
+                except settings_io.SettingsError:
+                    pass
+        else:
+            text = request.form.get("settings_text", "")
+            try:
+                parsed = settings_io.parse(text)
+                settings_io.validate(parsed)
+                settings_io.save_atomic(SETTINGS_FILE, parsed)
+                # Re-read from disk so the editor reflects the canonical formatting.
+                text = settings_io.load_text(SETTINGS_FILE)
+                success = "Settings saved. Restart the pipeline for changes to take effect."
+            except settings_io.SettingsError as e:
+                error = str(e)
+    else:
+        try:
+            text = settings_io.load_text(SETTINGS_FILE)
+        except settings_io.SettingsError as e:
+            error = str(e)
+
+    return render_template(
+        "settings.html",
+        user=session["user"],
+        settings_text=text,
+        settings_path=str(SETTINGS_FILE),
+        defaults_available=SETTINGS_DEFAULTS_FILE.is_file(),
+        error=error,
+        success=success,
+        info=info,
     )
 
 

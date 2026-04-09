@@ -33,6 +33,9 @@
     <nav class="row">
       <a class="pill active" href="{{ url_for('dashboard') }}">Dashboard</a>
       <a class="pill" href="{{ url_for('archive') }}">Archive</a>
+      {% if is_admin %}
+      <a class="pill" href="{{ url_for('settings_page') }}">Settings</a>
+      {% endif %}
       <a class="pill" href="{{ url_for('logout') }}">Logout</a>
     </nav>
   </header>

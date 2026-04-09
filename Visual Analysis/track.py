@@ -17,7 +17,7 @@ for cid, name in model.names.items():
 
 print("Squirrel class id:", squirrel_id)
 
-video_path = r"C:\Users\cpear\Downloads\Trail Cam Tuesdays  4 (Eastern Gray Squirrel) [9CVmV3aG29s].mp4"
+video_path = r"C:\Users\cpear\Downloads\Squirrel_Test (1).mp4"
 cap = cv2.VideoCapture(video_path)
 
 if not cap.isOpened():
@@ -52,7 +52,7 @@ while cap.isOpened():
         frame,
         persist=True,
         classes=[squirrel_id] if squirrel_id is not None else None,
-        conf=0.25,
+        conf=0.15,
         tracker="botsort.yaml",
     )[0]
 
