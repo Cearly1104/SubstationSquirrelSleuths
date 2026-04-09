@@ -136,6 +136,7 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
                         detection_queues[cam_id].put(event)
 
                         state["in_episode"] = True
+                        state["start_time"] = timestamp
                         
                         # Set up episode naming and storage
                         episode_name = timestamp.strftime("ep_%Y-%m-%d_%I.%M.%S%p") # Format: ep_YYYY-MM-DD_HH.MM.SS AM/PM
@@ -190,7 +191,7 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
                                 analysis_queue.put({
                                     "clip_path": str(clip_path),
                                     "cam_name": cam_name,
-                                    "timestamp": timestamp
+                                    "timestamp": state["start_time"]
                                 })
                             else:
                                 #TODO convert to error

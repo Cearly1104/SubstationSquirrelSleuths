@@ -1,5 +1,6 @@
 import os
 import gc
+import torch
 from collections import defaultdict
 from pathlib import Path
 from queue import Empty
@@ -9,10 +10,6 @@ import numpy as np
 
 
 # ========================== Homography Defaults ==========================
-
-PLANE_WIDTH_M = 4.5
-PLANE_HEIGHT_M = 3.5
-PIXELS_PER_METER = 120
 
 HEAT_RADIUS = 16
 HEAT_BLUR = 31
@@ -74,8 +71,11 @@ def _order_points(pts):
 
 def analysis_worker(config, analysis_dir, analysis_queue, stop):
     """Watches for completed episode videos and runs sequential analysis on each."""
-    while not stop.is_set():
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[analysis] Worker running on {device}")
+
+    while not stop.is_set():
         try:
             item = analysis_queue.get(timeout=0.5)
         except Empty:
@@ -85,28 +85,24 @@ def analysis_worker(config, analysis_dir, analysis_queue, stop):
         cam_name = item["cam_name"]
         timestamp = item["timestamp"]
 
+        output_dir = analysis_dir / timestamp.strftime("%Y-%m-%d_%I.%M.%S%p") / cam_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+
         try:
-            run_analysis(
-                video_path=video_path,
-                output_dir=str(analysis_dir),
-                model_path=str(config["model_path"]),
-                source_points=config["source_points"],
-            )
+            run_analysis(video_path, output_dir, cam_name, timestamp, config, device)
         except Exception as e:
             print(f"[analysis] Error processing {video_path}: {e}")
 
 
 # ========================== Stage 1: Tracking ==========================
-
-def stage_track(video_path, model_path, output_dir, device="cuda", conf=0.25, class_filter="squirrel"):
+def stage_track(video_path, output_dir, base, config, device, class_filter="squirrel"):
     from ultralytics import YOLO
 
     print("[analysis] Stage 1/3: Tracking")
 
-    model = YOLO(model_path)
-    model.to(device)
-
+    model = YOLO(str(config["model_path"])).to(device)
     class_id = _get_class_id(model.names, class_filter)
+    conf = config["detection_confidence"]
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -116,7 +112,6 @@ def stage_track(video_path, model_path, output_dir, device="cuda", conf=0.25, cl
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    base = Path(video_path).stem
     out_path = str(Path(output_dir) / f"{base}_tracked.mp4")
     writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
@@ -160,14 +155,13 @@ def stage_track(video_path, model_path, output_dir, device="cuda", conf=0.25, cl
 
 
 # ========================== Stage 2: Heatmap ==========================
-
-def stage_heatmap(video_path, model_path, output_dir, device="cuda", conf=0.2, class_filter="squirrel"):
+def stage_heatmap(video_path, output_dir, base, config, device, class_filter="squirrel"):
     from ultralytics import YOLO, solutions
 
     print("[analysis] Stage 2/3: Heatmap")
 
     # Resolve class filter for solutions.Heatmap
-    temp_model = YOLO(model_path)
+    temp_model = YOLO(str(config["model_path"])).to(device)
     class_id = _get_class_id(temp_model.names, class_filter)
     del temp_model
 
@@ -185,10 +179,10 @@ def stage_heatmap(video_path, model_path, output_dir, device="cuda", conf=0.2, c
 
     heatmap = solutions.Heatmap(
         show=False,
-        model=model_path,
+        model=str(config["model_path"]),
         colormap=cv2.COLORMAP_INFERNO,
         device=device,
-        conf=conf,
+        conf=config["detection_confidence"],
         half=True,
         classes=[class_id] if class_id is not None else None,
     )
@@ -238,12 +232,16 @@ def stage_heatmap(video_path, model_path, output_dir, device="cuda", conf=0.2, c
 
 
 # ========================== Stage 3: Homography ==========================
-
-def stage_homography(video_path, model_path, output_dir, source_points,
-                     device="cuda", conf=0.20, class_filter="squirrel"):
+def stage_homography(video_path, output_dir, base, config, device, class_filter="squirrel"):
     from ultralytics import YOLO
 
     print("[analysis] Stage 3/3: Homography bird's-eye heatmap")
+
+    source_points = config["source_points"]
+    PLANE_WIDTH_M = config["plane_width_m"]
+    PLANE_HEIGHT_M = config["plane_height_m"]
+    PIXELS_PER_METER = config["pixels_per_meter"]
+    conf = config["detection_confidence"]
 
     if source_points is None:
         print("[analysis]   Skipped — no source_points provided.")
@@ -259,8 +257,7 @@ def stage_homography(video_path, model_path, output_dir, source_points,
     )
     H = cv2.getPerspectiveTransform(src_pts, dst_pts)
 
-    model = YOLO(model_path)
-    model.to(device)
+    model = YOLO(str(config["model_path"])).to(device)
     class_id = _get_class_id(model.names, class_filter)
 
     cap = cv2.VideoCapture(video_path)
@@ -360,19 +357,15 @@ def stage_homography(video_path, model_path, output_dir, source_points,
 
 
 # ========================== Pipeline Entry Point ==========================
-
-def run_analysis(video_path, output_dir, model_path, source_points=None,
-                 device="cuda", conf=0.25):
-    os.makedirs(output_dir, exist_ok=True)
+def run_analysis(video_path, output_dir, cam_name, timestamp, config, device):
     video_path = str(video_path)
-    model_path = str(model_path)
+    base = f"{cam_name}_{timestamp.strftime('%Y-%m-%d_%I.%M.%S%p')}"
 
     print(f"[analysis] Starting sequential analysis on: {video_path}")
 
-    track_out = stage_track(video_path, model_path, output_dir, device=device, conf=conf)
-    heatmap_out = stage_heatmap(video_path, model_path, output_dir, device=device, conf=conf)
-    homography_out = stage_homography(video_path, model_path, output_dir, source_points,
-                                      device=device, conf=conf)
+    track_out = stage_track(video_path, output_dir, base, config, device)
+    heatmap_out = stage_heatmap(video_path, output_dir, base, config, device)
+    homography_out = stage_homography(video_path, output_dir, base, config, device)
 
     print("[analysis] All stages complete.")
     return {

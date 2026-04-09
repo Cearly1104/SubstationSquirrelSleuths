@@ -133,7 +133,8 @@ def run_detection_mode(settings, stop_event):
         "source_points": cfg["source_points"],
         "plane_width_m": cfg["plane_width_m"],
         "plane_height_m": cfg["plane_height_m"],
-        "pixels_per_meter": cfg["pixels_per_meter"]
+        "pixels_per_meter": cfg["pixels_per_meter"],
+        "detection_confidence": cfg["detection_confidence"]
     }
 
     ####################### Directory setup #######################
@@ -183,14 +184,14 @@ def run_detection_mode(settings, stop_event):
         threads.append(t0)
         threads.append(t1)
 
-    # # Start the analysis worker thread (processes one video at a time, sequentially)
-    # analysis_thread = threading.Thread(
-    #     target=visual_analysis.analysis_worker,
-    #     args=(analysis_cfg, daily_dir, analysis_queue, stop_event),
-    #     daemon=True
-    # )
-    # analysis_thread.start()
-    # threads.append(analysis_thread)
+    # Start the analysis worker thread (processes one video at a time, sequentially)
+    analysis_thread = threading.Thread(
+        target=visual_analysis.analysis_worker,
+        args=(analysis_cfg, daily_dir, analysis_queue, stop_event),
+        daemon=True
+    )
+    analysis_thread.start()
+    threads.append(analysis_thread)
 
     return threads
 
