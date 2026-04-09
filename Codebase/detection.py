@@ -87,7 +87,8 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
             "episode_writer": None,
             "annotated_writer": None,
             "detection_streak": 0,
-            "no_detection_streak": 0
+            "no_detection_streak": 0,
+            "consecutive_frames": 0
         }
         for cam in cameras
     }

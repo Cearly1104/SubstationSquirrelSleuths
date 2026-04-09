@@ -110,6 +110,9 @@ def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, sto
 
 def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time):
 
+    results_dir = results_dir / start_time.strftime('%Y-%m-%d_%I.%M.%S%p') / cam_name
+    results_dir.mkdir(parents=True, exist_ok=True)
+
     # Give FFmpeg a second to finish writing last segment (avoid concatenating an unfinished file)
     time.sleep(1)
 
