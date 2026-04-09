@@ -173,7 +173,6 @@ def stage_heatmap(video_path, output_dir, base, config, device, class_filter="sq
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    base = Path(video_path).stem
     vid_path = str(Path(output_dir) / f"{base}_heatmap.mp4")
     writer = cv2.VideoWriter(vid_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
@@ -266,7 +265,6 @@ def stage_homography(video_path, output_dir, base, config, device, class_filter=
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
 
-    base = Path(video_path).stem
     out_path = str(Path(output_dir) / f"{base}_birdseye.mp4")
     writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (bev_w, bev_h))
 
