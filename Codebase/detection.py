@@ -74,7 +74,9 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
 
     cam_lookup = {cam.id: cam for cam in cameras}
 
-    model = YOLO(config["model_path"])
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = YOLO(config["model_path"]).to(device)
+    print(f"Detection model running on {device}")
 
     # Initialize and keep track of each camera's episode status
     episode_state = {
@@ -91,10 +93,8 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
     }
 
     # Episode control variables
-    episode_cutoff = 2.0    # Seconds to 
-    consecutive_frame_threshold = 1 # Required consecutive detection frames before an episode can be started
-    # start_threshold = 3
-    # end_threshold = 5
+    episode_cutoff = config["episode_cutoff"]       # Consecutive seconds of no squirrel detection before an episode can be ended
+    consecutive_frame_threshold = config["consecutive_frame_threshold"] # Required consecutive detection frames before an episode can be started
 
     # Main loop, parses frames, associates results with proper camera and prompts capture system for episode start and end
     # Frames with detections are annotated with bounding boxes are saved and path directories are passed to analysis system for tracking
@@ -111,6 +111,8 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
             # Pull only frames to be passed in as the model's input
             # Done by unpacking the batch tuple into just a list of frames
             frames = [frame for _, frame, _ in batch]
+
+            
             results = model(frames, conf=config["detection_confidence"], verbose=False)
 
             # Loop over each result, comparing and updating episode status as appropriate

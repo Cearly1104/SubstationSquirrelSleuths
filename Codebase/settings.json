@@ -1,5 +1,5 @@
 {
-  "default_mode": "RECORDING",
+  "default_mode": "DETECTION",
 
   "modes": {
     "DETECTION": {
@@ -8,6 +8,8 @@
       "detection_fps": 10,
       "detection_confidence": 0.10,
       "frozen_camera_threshold": 1.0,
+      "episode_cutoff": 2.0,
+      "consecutive_frame_threshold": 1,
       "save_annotated": true,
       
       "rolling_buffer_length": 3,

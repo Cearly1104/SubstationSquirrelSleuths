@@ -116,7 +116,9 @@ def run_detection_mode(settings, stop_event):
         "detection_fps": cfg["detection_fps"],
         "detection_confidence": cfg["detection_confidence"],
         "frozen_camera_threshold": cfg["frozen_camera_threshold"],
-        "save_annotated": cfg["save_annotated"]
+        "save_annotated": cfg["save_annotated"],
+        "episode_cutoff": cfg["episode_cutoff"],
+        "consecutive_frame_threshold": cfg["episode_cutoff"]
     }
 
     # Capture system settings
