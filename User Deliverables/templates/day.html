@@ -37,7 +37,7 @@
 
   {% for ev in day.events %}
   <section class="card" style="margin-bottom:16px;">
-    <h3>Event — {{ ev.ts }}</h3>
+    <h3>{{ ev.ts }} — {{ ev.cam }}</h3>
     <div class="layout">
       <div>
         <h4 style="margin:0 0 8px;">Images ({{ ev.images | length }})</h4>
@@ -45,7 +45,7 @@
         <div class="gallery">
           {% for img in ev.images %}
           <article class="thumb">
-            <img src="{{ url_for('serve_image', day_id=day.day, event_id=ev.ts, filename=img) }}" alt="{{ img }}" loading="lazy">
+            <img src="{{ url_for('serve_image', day_id=day.day, ts=ev.ts, cam=ev.cam, filename=img) }}" alt="{{ img }}" loading="lazy">
             <div class="cap">{{ img }}</div>
           </article>
           {% endfor %}
@@ -59,7 +59,7 @@
         <h4 style="margin:0 0 8px;">Videos ({{ ev.videos | length }})</h4>
         {% if ev.videos %}
         <video controls preload="metadata" style="width:100%;border-radius:8px;"
-               src="{{ url_for('serve_video', day_id=day.day, event_id=ev.ts, filename=ev.videos[0]) }}"></video>
+               src="{{ url_for('serve_video', day_id=day.day, ts=ev.ts, cam=ev.cam, filename=ev.videos[0]) }}"></video>
         {% for vid in ev.videos %}
         <div class="video-item">
           <span class="muted">{{ vid }}</span>

@@ -25,9 +25,9 @@ import settings_io
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Shared data directory where the analysis subsystem writes outputs.
-# On the Jetson this will be an absolute path; default works for local dev.
-DATA_DIR = Path(os.environ.get("SSS_DATA_DIR", BASE_DIR / "data"))
+# Shared data directory — points at the pipeline's detections/ output folder.
+# Structure: detections/<date>/<timestamp>/<cam_name>/<files>
+DATA_DIR = Path(os.environ.get("SSS_DATA_DIR", BASE_DIR.parent / "Codebase" / "detections"))
 
 # Static demo assets (shipped with repo — training images, demo videos, etc.)
 DEMO_ASSETS_DIR = BASE_DIR / "assets"
@@ -139,10 +139,12 @@ def _read_json(path, default=None):
 def get_days():
     """Return a sorted list of day folders available in DATA_DIR.
 
-    Each day folder contains event sub-folders named by timestamp
-    (e.g. ``13:12:11``).  Inside each event folder:
-      Images/   — captured stills
-      Videos/   — recorded clips
+    Pipeline output structure:
+      detections/<date>/<timestamp>/<cam_name>/<files>
+
+    Each episode is one camera subfolder inside a timestamp folder.
+    Only the three analysis outputs are exposed to the website:
+      *_tracked.mp4, *_heatmap_final.png, *_birdseye_final.png
     """
     if not DATA_DIR.is_dir():
         return []
@@ -154,10 +156,12 @@ def get_days():
             all_videos = []
             for ev in events:
                 all_images.extend(
-                    {"file": f, "event": ev["ts"]} for f in ev["images"]
+                    {"file": f, "event_ts": ev["ts"], "event_cam": ev["cam"]}
+                    for f in ev["images"]
                 )
                 all_videos.extend(
-                    {"file": f, "event": ev["ts"]} for f in ev["videos"]
+                    {"file": f, "event_ts": ev["ts"], "event_cam": ev["cam"]}
+                    for f in ev["videos"]
                 )
             days.append({
                 "day": entry.name,
@@ -169,17 +173,25 @@ def get_days():
 
 
 def _collect_events(day_dir):
-    """Scan *day_dir* for timestamp sub-folders and return event dicts."""
+    """Scan *day_dir* for timestamp/cam sub-folders and return event dicts.
+
+    Structure: <day_dir>/<timestamp>/<cam_name>/<analysis files>
+    """
     events = []
-    for sub in sorted(day_dir.iterdir()):
-        if sub.is_dir() and not _looks_like_date(sub.name):
-            images = _list_media(sub / "Images") + _list_media(sub / "images")
-            videos = _list_media(sub / "Videos") + _list_media(sub / "videos")
-            events.append({
-                "ts": sub.name,
-                "images": images,
-                "videos": videos,
-            })
+    for ts_dir in sorted(day_dir.iterdir()):
+        if not ts_dir.is_dir() or _looks_like_date(ts_dir.name):
+            continue
+        for cam_dir in sorted(ts_dir.iterdir()):
+            if not cam_dir.is_dir():
+                continue
+            images, videos = _list_analysis_outputs(cam_dir)
+            if images or videos:
+                events.append({
+                    "ts": ts_dir.name,
+                    "cam": cam_dir.name,
+                    "images": images,
+                    "videos": videos,
+                })
     return events
 
 
@@ -191,14 +203,27 @@ def _looks_like_date(name):
         return False
 
 
-def _list_media(folder):
-    if not folder.is_dir():
-        return []
-    allowed = {".jpg", ".jpeg", ".png", ".bmp", ".mp4", ".avi", ".mov", ".mkv"}
-    return sorted(
-        f.name for f in folder.iterdir()
-        if f.is_file() and f.suffix.lower() in allowed
-    )
+def _list_analysis_outputs(cam_dir):
+    """Return only the three analysis outputs from a camera episode folder.
+
+    Recognized outputs:
+      *_tracked.mp4         -> video
+      *_heatmap_final.png   -> image
+      *_birdseye_final.png  -> image
+    """
+    images = []
+    videos = []
+    for f in sorted(cam_dir.iterdir()):
+        if not f.is_file():
+            continue
+        name = f.name
+        if name.endswith("_tracked.mp4"):
+            videos.append(name)
+        elif name.endswith("_heatmap_final.png"):
+            images.append(name)
+        elif name.endswith("_birdseye_final.png"):
+            images.append(name)
+    return images, videos
 
 
 def get_system_stats():
@@ -381,23 +406,21 @@ def day_detail(day_id):
 # Routes — Serve media from the data directory
 # ---------------------------------------------------------------------------
 
-@app.route("/data/<day_id>/<event_id>/images/<filename>")
+@app.route("/data/<day_id>/<ts>/<cam>/images/<filename>")
 @login_required
-def serve_image(day_id, event_id, filename):
-    for name in ("Images", "images"):
-        folder = DATA_DIR / day_id / event_id / name
-        if folder.is_dir():
-            return send_from_directory(str(folder), filename)
+def serve_image(day_id, ts, cam, filename):
+    folder = DATA_DIR / day_id / ts / cam
+    if folder.is_dir():
+        return send_from_directory(str(folder), filename)
     abort(404)
 
 
-@app.route("/data/<day_id>/<event_id>/videos/<filename>")
+@app.route("/data/<day_id>/<ts>/<cam>/videos/<filename>")
 @login_required
-def serve_video(day_id, event_id, filename):
-    for name in ("Videos", "videos"):
-        folder = DATA_DIR / day_id / event_id / name
-        if folder.is_dir():
-            return send_from_directory(str(folder), filename)
+def serve_video(day_id, ts, cam, filename):
+    folder = DATA_DIR / day_id / ts / cam
+    if folder.is_dir():
+        return send_from_directory(str(folder), filename)
     abort(404)
 
 
@@ -492,8 +515,8 @@ def live_view(cam_id):
 def api_post_event():
     """Receive a detection event from the analysis subsystem.
 
-    Expected JSON body: {day: "YYYY-MM-DD", ts: "HH:MM:SS"}
-    Creates the event folder structure:  data/<day>/<ts>/Images/  and  Videos/
+    Expected JSON body: {day: "YYYY-MM-DD", ts: "...", cam: "cam_name"}
+    Creates the event folder: detections/<day>/<ts>/<cam>/
     An API key is required via the X-API-Key header.
     """
     api_key = os.environ.get("SSS_API_KEY", "")
@@ -501,14 +524,11 @@ def api_post_event():
         return jsonify({"error": "unauthorized"}), 401
 
     payload = request.get_json(silent=True)
-    if not payload or "day" not in payload or "ts" not in payload:
+    if not payload or "day" not in payload or "ts" not in payload or "cam" not in payload:
         return jsonify({"error": "bad request"}), 400
 
-    day = payload["day"]
-    ts = payload["ts"]
-    event_dir = DATA_DIR / day / ts
-    (event_dir / "Images").mkdir(parents=True, exist_ok=True)
-    (event_dir / "Videos").mkdir(parents=True, exist_ok=True)
+    event_dir = DATA_DIR / payload["day"] / payload["ts"] / payload["cam"]
+    event_dir.mkdir(parents=True, exist_ok=True)
 
     return jsonify({"ok": True})
 
