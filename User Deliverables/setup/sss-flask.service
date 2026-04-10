@@ -1,15 +1,18 @@
 [Unit]
 Description=SSS User Deliverables Flask App
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=sss
-WorkingDirectory=/home/sss/user-deliverables
-Environment=SSS_DATA_DIR=/home/sss/data
+User=SubstationSquirrelSleuths
+WorkingDirectory=/home/SubstationSquirrelSleuths/SSS/User Deliverables
+Environment=SSS_DATA_DIR=/home/SubstationSquirrelSleuths/SSS/User Deliverables/data
+Environment=SSS_ACCOUNTS_FILE=/home/SubstationSquirrelSleuths/SSS/User Deliverables/accounts.json
+Environment=SSS_SETTINGS_FILE=/home/SubstationSquirrelSleuths/SSS/Codebase/settings.json
+Environment=SSS_SETTINGS_DEFAULTS=/home/SubstationSquirrelSleuths/SSS/Codebase/settings.default.json
 Environment=SSS_SECRET_KEY=CHANGE_ME_TO_A_RANDOM_VALUE
-Environment=SSS_ACCOUNTS_FILE=/home/sss/user-deliverables/accounts.json
-ExecStart=/home/sss/user-deliverables/venv/bin/python app.py
+ExecStart=/home/SubstationSquirrelSleuths/venvs/sss/bin/python app.py
 Restart=on-failure
 RestartSec=5
 
