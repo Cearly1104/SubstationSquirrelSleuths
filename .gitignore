@@ -1,0 +1,14 @@
+# Runtime data (captured images/videos — stays local to Jetson)
+data/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment / secrets
+.env
+
+# OS junk
+.DS_Store
+Thumbs.db
