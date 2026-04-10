@@ -25,7 +25,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-VENV_DIR="/home/SubstationSquirrelSleuths/venvs/sss"
+VENV_DIR="/home/sss/venvs/sss"
 
 echo "=== SSS Flask Service Install ==="
 echo "  Project dir: $PROJECT_DIR"
@@ -34,8 +34,8 @@ echo ""
 
 # ── 1. Refresh the venv ─────────────────────────────────────────────────────
 echo "--- Step 1: Refreshing Python environment ---"
-sudo -u SubstationSquirrelSleuths "$VENV_DIR/bin/pip" install --upgrade pip
-sudo -u SubstationSquirrelSleuths "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
+sudo -u sss "$VENV_DIR/bin/pip" install --upgrade pip
+sudo -u sss "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
 echo ""
 
 # ── 2. Install the systemd unit ─────────────────────────────────────────────

@@ -12,7 +12,7 @@ These steps only need to be done once, when the Jetson is first imaged.
 
 2. **Clone the project** to `~/SSS/` so the layout is:
    ```
-   /home/SubstationSquirrelSleuths/SSS/
+   /home/sss/SSS/
      Codebase/            # detection / recording pipeline
      User Deliverables/   # this Flask dashboard
    ```
