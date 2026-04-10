@@ -33,7 +33,6 @@
     </nav>
   </header>
 
-  {% set total_events = days | sum(attribute='events', default=[]) | length if days else 0 %}
   {% set te = namespace(val=0) %}
   {% set ti = namespace(val=0) %}
   {% set tv = namespace(val=0) %}
@@ -42,6 +41,7 @@
     {% set ti.val = ti.val + d.images | length %}
     {% set tv.val = tv.val + d.videos | length %}
   {% endfor %}
+  {% set total_events = te.val %}
 
   <section class="panel">
     <h2>Archive Overview</h2>

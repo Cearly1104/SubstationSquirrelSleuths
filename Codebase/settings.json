@@ -13,7 +13,7 @@
       "rolling_buffer_length": 3,
       "segment_time": 1,
       "source_points": null,
-      "plane_width_m": 4.5,
+      "plane_width_m": 3.5,
       "plane_height_m": 3.5,
       "pixels_per_meter": 120
     },
@@ -75,7 +75,7 @@
       }
     },
     {
-      "enabled": true,
+      "enabled": false,
       "id": 4,
       "name": "cam4",
       "url": "rtsp://localhost:8554/desktop",

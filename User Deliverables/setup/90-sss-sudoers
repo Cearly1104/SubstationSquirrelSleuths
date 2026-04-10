@@ -1,0 +1,11 @@
+# Drop this file into /etc/sudoers.d/90-sss (mode 0440, owned root:root).
+# Allows the sss user to control the pipeline service without a password,
+# which lets the Flask settings page trigger restarts automatically.
+#
+# Install:
+#   sudo install -m 0440 -o root -g root setup/90-sss-sudoers /etc/sudoers.d/90-sss
+#   sudo visudo -c   # verify syntax before relying on it
+
+sss ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart sss-pipeline
+sss ALL=(ALL) NOPASSWD: /usr/bin/systemctl start sss-pipeline
+sss ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop sss-pipeline

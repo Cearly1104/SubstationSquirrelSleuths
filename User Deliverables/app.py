@@ -7,6 +7,7 @@ hosted on the Jetson Orin Nano.
 import os
 import json
 import secrets
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -562,6 +563,35 @@ def api_get_stats():
 @login_required
 def api_get_days():
     return jsonify(get_days())
+
+
+@app.route("/api/restart-pipeline", methods=["POST"])
+@login_required
+@admin_required
+def api_restart_pipeline():
+    try:
+        subprocess.run(
+            ["sudo", "/usr/bin/systemctl", "restart", "sss-pipeline"],
+            check=True, timeout=15
+        )
+        return jsonify({"ok": True})
+    except subprocess.CalledProcessError as e:
+        return jsonify({"ok": False, "error": f"systemctl exited {e.returncode}"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/pipeline-status", methods=["GET"])
+@login_required
+def api_pipeline_status():
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "sss-pipeline"],
+            capture_output=True, text=True, timeout=5
+        )
+        return jsonify({"status": result.stdout.strip()})
+    except Exception as e:
+        return jsonify({"status": "unknown", "error": str(e)}), 500
 
 
 # ---------------------------------------------------------------------------

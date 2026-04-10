@@ -117,10 +117,65 @@
     </div>
   </form>
 
-  <div class="notice">
-    Saved changes are written atomically, but the running pipeline only re-reads
-    settings.json at startup. To apply your changes, restart the detection
-    service on the device.
+  <div class="notice" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <span>
+      Saved settings take effect after the pipeline restarts.
+      Use the button to restart it automatically.
+    </span>
+    <button type="button" id="restart-btn" class="btn secondary" style="white-space:nowrap" onclick="restartPipeline()">
+      Restart Pipeline
+    </button>
+    <span id="restart-status" style="font-size:.86rem"></span>
   </div>
+
+  <script>
+  async function restartPipeline() {
+    const btn    = document.getElementById('restart-btn');
+    const status = document.getElementById('restart-status');
+    btn.disabled = true;
+    status.style.color = 'var(--muted)';
+    status.textContent = 'Restarting\u2026';
+    try {
+      const res  = await fetch('{{ url_for("api_restart_pipeline") }}', {method: 'POST'});
+      const data = await res.json();
+      if (data.ok) {
+        status.textContent = 'Restarted \u2014 waiting for active\u2026';
+        await pollStatus(status);
+      } else {
+        status.style.color = '#ffb4b4';
+        status.textContent = 'Error: ' + (data.error || 'unknown');
+      }
+    } catch (e) {
+      status.style.color = '#ffb4b4';
+      status.textContent = 'Request failed';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function pollStatus(status) {
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        const res  = await fetch('{{ url_for("api_pipeline_status") }}');
+        const data = await res.json();
+        if (data.status === 'active') {
+          status.style.color = '#b4ffcc';
+          status.textContent = 'Pipeline is active \u2713';
+          return;
+        }
+        if (data.status === 'failed') {
+          status.style.color = '#ffb4b4';
+          status.textContent = 'Pipeline failed to start';
+          return;
+        }
+        status.style.color = 'var(--muted)';
+        status.textContent = 'Waiting\u2026 (' + data.status + ')';
+      } catch (e) { /* ignore transient errors while polling */ }
+    }
+    status.style.color = 'var(--muted)';
+    status.textContent = 'Timed out waiting for active status';
+  }
+  </script>
 </main>
 {% endblock %}

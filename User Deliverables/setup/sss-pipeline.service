@@ -1,0 +1,15 @@
+[Unit]
+Description=SSS Detection Pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sss
+WorkingDirectory=/home/sss/SSS/Codebase
+ExecStart=/home/sss/venvs/sss/bin/python main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
