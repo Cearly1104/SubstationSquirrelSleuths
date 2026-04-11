@@ -3,6 +3,7 @@ import cv2
 import threading
 import time
 import torch
+import queue
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -11,12 +12,22 @@ from dataclasses import dataclass
 states = {}
 
 # Detection event dataclass, holds an event's type, associated camera id, and timestamp
-# to easily pass necessary detection info to the capture system
+# to easily pass necessary detection info to the capture system and user deliverables text logger
 @dataclass
 class Event:
     camera_id: int
     event_type: str
     timestamp: datetime
+    confidence: float
+
+@dataclass
+class EpisodeSummary:
+    camera_id: int
+    start_timestamp: datetime
+    end_timestamp: datetime
+    squirrels: int
+    avg_confidence: float
+
 
 # Detection helper function to grab a camera frame and its associated timestamp to be passed to the YOLO model
 # One helper per camera
@@ -66,11 +77,11 @@ def batch_frames(cameras, frozen_threshold):
     # Returns a list of fresh cam_id, frame, timestamp tuples
     return batch
 
-# TODO add start and end smoothing
+
 # Main detection function, takes fresh frames from helper->batch functions and processes them with a YOLO model
 # Model outputs squirrel detections and prompts the capture system to record squirrel detection episodes
 # Detection logs are taken and annotated processed frames are stored for analysis system usage, prompted by episode write completion
-def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis_queue, stop):
+def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis_queue, logging_queue, stop):
 
     cam_lookup = {cam.id: cam for cam in cameras}
 
@@ -88,7 +99,13 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
             "annotated_writer": None,
             "detection_streak": 0,
             "no_detection_streak": 0,
-            "consecutive_frames": 0
+            "consecutive_frames": 0,
+
+            # Logging info
+            "start_time": None,
+            "conf_sum": 0.0,
+            "conf_count": 0,
+            "peak_squirrels": 0
         }
         for cam in cameras
     }
@@ -122,7 +139,8 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
                 result = results[i]
                 boxes = result.boxes
                 squirrel_present = boxes is not None and len(boxes) > 0
-
+                conf = float(boxes.conf.max()) if squirrel_present else 0.0
+                
                 state = episode_state[cam_id]
                 cam_name = cam_lookup[cam_id].name
 
@@ -130,10 +148,15 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
                 if squirrel_present:
                     state["last_detection_time"] = timestamp
                     state["consecutive_frames"] += 1
+                    state["peak_squirrels"] = max(state["peak_squirrels"], len(boxes))
+                    state["conf_sum"] += conf
+                    state["conf_count"] += 1
+
                     # Start an episode if squirrel detected and not already in one
                     if not state["in_episode"] and state["consecutive_frames"] > consecutive_frame_threshold:
-                        event = Event(cam_id, "START", timestamp)
+                        event = Event(cam_id, "START", timestamp, conf)
                         detection_queues[cam_id].put(event)
+                        logging_queue.put(event)
 
                         state["in_episode"] = True
                         state["start_time"] = timestamp
@@ -171,8 +194,20 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
                     if state["in_episode"]:
                         last_time = state["last_detection_time"]
                         if last_time and (timestamp - last_time).total_seconds() >= episode_cutoff:
-                            event = Event(cam_id, "END", timestamp)
+                            event = Event(cam_id, "END", timestamp, conf)
+                            
+                            avg_conf = (state["conf_sum"] / state["conf_count"] if state["conf_count"] > 0 else 0.0)
+                            summary = EpisodeSummary(
+                                camera_id=cam_id,
+                                start_timestamp=state["start_time"],
+                                end_timestamp=timestamp,
+                                squirrels=state["peak_squirrels"],
+                                avg_confidence=avg_conf
+                            )
+
                             detection_queues[cam_id].put(event)
+                            logging_queue.put(event)
+                            logging_queue.put(summary)
 
                             # TODO remove
                             print(f"End episode {state['episode_dir']} (cam {cam_id})")
@@ -200,6 +235,13 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
                             # Update camera's episode state after episode completion
                             state["in_episode"] = False
                             state["episode_dir"] = None
+                            state["consecutive_frames"] = 0
+                            state["last_detection_time"] = None
+                            state["start_time"] = None
+                            state["conf_sum"] = 0.0
+                            state["conf_count"] = 0
+                            state["peak_squirrels"] = 0
+                            
 
                 # Write processed frame(s) to output folder
                 if state["in_episode"]:
@@ -292,3 +334,107 @@ def recording_mode_detector(cameras, config, timestamp, output_dir, stop):
         for writer in writers.values():
             if writer is not None:
                 writer.release()
+                
+def episode_logger(cameras, config, logging_queue, det_mode_dir, stop_event):
+
+    cam_lookup = {cam.id: cam for cam in cameras}
+    
+    LifetimeLog = det_mode_dir / "lifetime_log.txt"
+    date = None
+    DailyLog = None
+
+    # Write lifetime header lines if file doesn't exist yet
+    if not LifetimeLog.exists():
+        print((" Lifetime Squirrel Detection Log ").center(170, "=") + "\n")
+        with open(LifetimeLog, "w", encoding="utf-8") as f:
+            f.write((" Lifetime Squirrel Detection Log ").center(170, "=") + "\n\n")
+
+    while not stop_event.is_set():
+
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+
+        # Handle date rollovers, write daily header lines if daily log doesnt exist yet
+        if date != date_str:
+            date = date_str
+
+            daily_dir = det_mode_dir / date_str
+            daily_dir.mkdir(parents=True, exist_ok=True)
+
+            DailyLog = daily_dir / f"{date_str}_log.txt"
+
+            date_header = (f" {date_str} ").center(170, "=")
+
+            # Write to daily log (create if doesn't exist)
+            if not DailyLog.exists():
+
+                print(date_header + "\n")
+                with open(DailyLog, "w", encoding="utf-8") as f:
+                    f.write(date_header + "\n\n")
+
+                print(date_header + "\n")
+                # Append date header to lifetime log too
+                with open(LifetimeLog, "a", encoding="utf-8") as f:
+                    f.write(date_header + "\n\n")
+
+        # Check logging queue for new episode events
+        try:
+            entry = logging_queue.get(timeout=0.5)
+        except queue.Empty:
+            continue
+
+        if entry is None:
+            break
+
+        # If entry is only an Event, write the Event fields into the logs
+        elif isinstance(entry, Event):
+
+            ts = entry.timestamp.strftime("%I:%M:%S.%f")[:-3] + entry.timestamp.strftime("%p")
+            e_type = entry.event_type
+            cam_name = cam_lookup[entry.camera_id].name
+            conf = f"{entry.confidence:.2f}" if entry.confidence is not None else ""
+
+            if e_type == "START":
+                line = (f"[{ts}] - EP_{e_type:<7} - Camera: {cam_name:<20} - Confidence: {conf}")
+            elif e_type == "END":
+                line = (f"[{ts}] - EP_{e_type:<7} - Camera: {cam_name:<20}")
+            else:
+                continue
+
+            print(line)
+
+            with open(LifetimeLog, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            if DailyLog:
+                with open(DailyLog, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+
+        # If entry is an Episode Summary, write the Summary fields into the logs
+        elif isinstance(entry, EpisodeSummary):
+            start = entry.start_timestamp.strftime("%I:%M:%S.%f")[:-3] + entry.start_timestamp.strftime("%p")
+            end = entry.end_timestamp.strftime("%I:%M:%S.%f")[:-3] + entry.end_timestamp.strftime("%p")
+
+            duration = entry.end_timestamp - entry.start_timestamp
+            total_seconds = duration.total_seconds()
+            hours = int(total_seconds // 3600)
+            minutes = int((total_seconds % 3600) // 60)
+            seconds = int(total_seconds % 60)
+            milliseconds = int((total_seconds % 1) * 1000)
+            duration_str = f"{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}"
+
+            line = (
+                f"[{end}] - EP_SUMMARY - "
+                f"Camera: {cam_lookup[entry.camera_id].name:<20} - "
+                f"Start: {start} - End: {end} - "
+                f"Duration: {duration_str} - "
+                f"Squirrels: {entry.squirrels:02d} - "
+                f"Avg Confidence: {entry.avg_confidence:.2f}"
+            )
+
+            print(line)
+
+            with open(LifetimeLog, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            if DailyLog:
+                with open(DailyLog, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")

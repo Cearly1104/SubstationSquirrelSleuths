@@ -18,7 +18,9 @@
       "source_points": null,
       "plane_width_m": 4.5,
       "plane_height_m": 3.5,
-      "pixels_per_meter": 120
+      "pixels_per_meter": 120,
+
+      "detection_logging": true
     },
 
     "RECORDING": {
