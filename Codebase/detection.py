@@ -347,7 +347,7 @@ def episode_logger(cameras, config, logging_queue, det_mode_dir, stop_event):
     if not LifetimeLog.exists():
         print((" Lifetime Squirrel Detection Log ").center(170, "=") + "\n")
         with open(LifetimeLog, "w", encoding="utf-8") as f:
-            f.write((" Lifetime Squirrel Detection Log ").center(170, "=") + "\n\n")
+            f.write((" Lifetime Squirrel Detection Log ").center(170, "=") + "\n")
 
     while not stop_event.is_set():
 
@@ -375,7 +375,7 @@ def episode_logger(cameras, config, logging_queue, det_mode_dir, stop_event):
                 print(date_header + "\n")
                 # Append date header to lifetime log too
                 with open(LifetimeLog, "a", encoding="utf-8") as f:
-                    f.write(date_header + "\n\n")
+                    f.write("\n" + date_header + "\n\n")
 
         # Check logging queue for new episode events
         try:
