@@ -54,7 +54,9 @@
     <nav class="row">
       <a class="pill" href="{{ url_for('dashboard') }}">Dashboard</a>
       <a class="pill" href="{{ url_for('archive') }}">Archive</a>
+      <a class="pill" href="{{ url_for('log_page') }}">Log</a>
       {% if is_admin %}
+      <a class="pill" href="{{ url_for('file_browser') }}">Files</a>
       <a class="pill active" href="{{ url_for('settings_page') }}">Settings</a>
       {% endif %}
       <a class="pill" href="{{ url_for('logout') }}">Logout</a>
@@ -89,6 +91,28 @@
     <strong>Heads up</strong>
     {{ info }}
   </div>
+  {% endif %}
+
+  {# ── Operating Mode ── #}
+  {% if available_modes %}
+  <section class="panel" style="margin-bottom:14px;">
+    <h2 style="margin:0 0 8px;">Operating Mode</h2>
+    <p style="margin:0 0 14px;">Choose the mode the pipeline runs in. Saved immediately — restart the pipeline to apply.</p>
+    <form method="post" action="{{ url_for('settings_page') }}" style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+      {% for mode in available_modes %}
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-family:var(--font-head);font-size:.95rem;font-weight:600;">
+        <input type="radio" name="mode" value="{{ mode }}"
+               {% if mode == current_mode %}checked{% endif %}
+               style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer;">
+        {{ mode }}
+      </label>
+      {% endfor %}
+      <button type="submit" name="action" value="set_mode" class="btn" style="padding:8px 16px;">Set Mode</button>
+      {% if current_mode %}
+      <span style="color:var(--muted);font-size:.85rem;">Active: <strong style="color:var(--ink)">{{ current_mode }}</strong></span>
+      {% endif %}
+    </form>
+  </section>
   {% endif %}
 
   <form method="post" action="{{ url_for('settings_page') }}">

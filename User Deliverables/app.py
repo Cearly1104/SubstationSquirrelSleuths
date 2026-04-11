@@ -8,6 +8,7 @@ import os
 import json
 import secrets
 import subprocess
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -227,6 +228,20 @@ def _list_analysis_outputs(cam_dir):
     return images, videos
 
 
+def get_enabled_cameras():
+    """Return the list of enabled camera entries from settings.json.
+
+    Reads fresh on every call so dashboard reflects changes without restart.
+    Each entry is a dict with at least: id (int), name (str), enabled (bool).
+    """
+    try:
+        with open(SETTINGS_FILE) as f:
+            settings = json.load(f)
+        return [cam for cam in settings.get("cameras", []) if cam.get("enabled")]
+    except Exception:
+        return []
+
+
 def get_system_stats():
     """Read live system stats directly from the Jetson hardware."""
     stats = {
@@ -311,6 +326,7 @@ def dashboard():
     today = datetime.now().strftime("%Y-%m-%d")
     today_data = next((d for d in days if d["day"] == today), None)
     stats = get_system_stats()
+    enabled_cameras = get_enabled_cameras()
     return render_template(
         "dashboard.html",
         user=session["user"],
@@ -318,6 +334,7 @@ def dashboard():
         today_data=today_data,
         stats=stats,
         days=days,
+        enabled_cameras=enabled_cameras,
     )
 
 
@@ -340,7 +357,25 @@ def settings_page():
     if request.method == "POST":
         action = request.form.get("action", "save")
 
-        if action == "load_defaults":
+        if action == "set_mode":
+            new_mode = (request.form.get("mode") or "").strip().upper()
+            try:
+                parsed = settings_io.parse(settings_io.load_text(SETTINGS_FILE))
+                if new_mode not in parsed.get("modes", {}):
+                    error = f"Unknown mode '{new_mode}'. Valid modes: {', '.join(parsed.get('modes', {}).keys())}"
+                else:
+                    parsed["default_mode"] = new_mode
+                    settings_io.save_atomic(SETTINGS_FILE, parsed)
+                    success = f"Mode set to {new_mode}. Restart the pipeline for the change to take effect."
+                text = settings_io.load_text(SETTINGS_FILE)
+            except settings_io.SettingsError as e:
+                error = str(e)
+                try:
+                    text = settings_io.load_text(SETTINGS_FILE)
+                except settings_io.SettingsError:
+                    pass
+
+        elif action == "load_defaults":
             # Populate the editor with the frozen defaults but DO NOT save —
             # the admin still has to click Save Settings to commit them.
             try:
@@ -374,6 +409,16 @@ def settings_page():
         except settings_io.SettingsError as e:
             error = str(e)
 
+    # Derive current mode and available modes for the mode-selector UI
+    current_mode = None
+    available_modes = []
+    try:
+        parsed_ui = settings_io.parse(text) if text else {}
+        current_mode = parsed_ui.get("default_mode", "")
+        available_modes = list(parsed_ui.get("modes", {}).keys())
+    except Exception:
+        pass
+
     return render_template(
         "settings.html",
         user=session["user"],
@@ -383,6 +428,29 @@ def settings_page():
         error=error,
         success=success,
         info=info,
+        current_mode=current_mode,
+        available_modes=available_modes,
+    )
+
+
+@app.route("/log")
+@login_required
+def log_page():
+    """Full-page system log viewer."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    log_dates = []
+    if DATA_DIR.is_dir():
+        for entry in sorted(DATA_DIR.iterdir(), reverse=True):
+            if entry.is_dir() and _looks_like_date(entry.name):
+                if (entry / f"{entry.name}_log.txt").is_file():
+                    log_dates.append(entry.name)
+    lifetime_exists = (DATA_DIR / "lifetime_log.txt").is_file()
+    return render_template(
+        "log.html",
+        user=session["user"],
+        today=today,
+        log_dates=log_dates,
+        lifetime_exists=lifetime_exists,
     )
 
 
@@ -441,33 +509,138 @@ def serve_demo_asset(filename):
 
 CAMERAS_FILE = Path(os.environ.get("SSS_CAMERAS_FILE", BASE_DIR / "cameras.json"))
 
+# ---------------------------------------------------------------------------
+# Shared frame store — one decode thread per camera URL, all MJPEG clients
+# read from the cached latest frame.  Avoids spawning a new cv2.VideoCapture
+# per browser connection which is very heavy on the Jetson.
+# ---------------------------------------------------------------------------
+
+class _FrameStore:
+    def __init__(self):
+        self.frame: bytes | None = None
+        self.lock = threading.Lock()
+
+
+_frame_stores: dict[str, _FrameStore] = {}
+_frame_stores_lock = threading.Lock()
+
+
+_PREVIEW_FPS     = 5          # decode rate for the dashboard preview
+_PREVIEW_WIDTH   = 854        # downscale width (854×480 for 16:9 source)
+_PREVIEW_HEIGHT  = 480
+_PREVIEW_QUALITY = 60         # JPEG quality — fine for monitoring
+
+
+def _capture_loop(url: str, store: _FrameStore) -> None:
+    """Background thread: drain the RTSP buffer cheaply and decode at low fps.
+
+    grab() pulls a compressed frame off the network without decoding — very
+    cheap.  retrieve() is only called every (1 / _PREVIEW_FPS) seconds so
+    the expensive H.264 decode + JPEG encode only happens 5× per second
+    regardless of the source stream's fps.
+    """
+    import cv2
+    interval = 1.0 / _PREVIEW_FPS
+    cap = cv2.VideoCapture(url)
+    last_decode = 0.0
+
+    while True:
+        ok = cap.grab()           # drain buffer, no decode
+        if not ok:
+            cap.release()
+            time.sleep(2.0)
+            cap = cv2.VideoCapture(url)
+            last_decode = 0.0
+            continue
+
+        now = time.monotonic()
+        if now - last_decode >= interval:
+            ok, frame = cap.retrieve()    # decode only this one frame
+            if ok:
+                frame = cv2.resize(frame, (_PREVIEW_WIDTH, _PREVIEW_HEIGHT))
+                _, buf = cv2.imencode(
+                    ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _PREVIEW_QUALITY]
+                )
+                with store.lock:
+                    store.frame = buf.tobytes()
+                last_decode = now
+
+
+def _get_frame_store(url: str) -> _FrameStore:
+    """Return (and lazily start) the shared frame store for *url*."""
+    with _frame_stores_lock:
+        if url not in _frame_stores:
+            store = _FrameStore()
+            _frame_stores[url] = store
+            t = threading.Thread(target=_capture_loop, args=(url, store), daemon=True)
+            t.start()
+        return _frame_stores[url]
+
 
 def _load_cameras():
+    """Build a camera dict keyed by camera name.
+
+    settings.json is the authoritative source (all cameras defined there are
+    included).  cameras.json can overlay additional fields (e.g. url_hq) for
+    any subset of cameras.  Auth credentials are injected into the URL from
+    environment variables if specified in settings.json.
+    """
+    cameras = {}
+
+    # Base: read every camera from settings.json
+    try:
+        with open(SETTINGS_FILE) as f:
+            settings = json.load(f)
+        for cam in settings.get("cameras", []):
+            name = cam.get("name")
+            if not name:
+                continue
+            url = cam.get("url", "")
+            # Inject RTSP auth credentials from env vars if provided
+            auth = cam.get("auth") or {}
+            un_env = auth.get("username_env")
+            pw_env = auth.get("password_env")
+            if un_env and pw_env:
+                un = os.environ.get(un_env, "")
+                pw = os.environ.get(pw_env, "")
+                if un and pw and "://" in url:
+                    scheme, rest = url.split("://", 1)
+                    url = f"{scheme}://{un}:{pw}@{rest}"
+            cameras[name] = {"id": name, "url": url}
+    except Exception:
+        pass
+
+    # Overlay: cameras.json can add/override fields (e.g. url_hq)
     if CAMERAS_FILE.is_file():
-        with open(CAMERAS_FILE) as f:
-            return {cam["id"]: cam for cam in json.load(f)}
-    return {}
+        try:
+            with open(CAMERAS_FILE) as f:
+                for entry in json.load(f):
+                    cam_id = entry.get("id")
+                    if cam_id:
+                        cameras[cam_id] = {**cameras.get(cam_id, {}), **entry}
+        except Exception:
+            pass
+
+    return cameras
 
 
 def _mjpeg_stream(stream_url):
-    """Generator that reads frames from a camera and yields MJPEG."""
-    import cv2
-    cap = cv2.VideoCapture(stream_url)
-    try:
-        while cap.isOpened():
-            ok, frame = cap.read()
-            if not ok:
-                time.sleep(0.5)
-                cap.release()
-                cap = cv2.VideoCapture(stream_url)
-                continue
-            _, buf = cv2.imencode(".jpg", frame)
+    """Generator that serves MJPEG from the shared per-URL frame store.
+
+    Only one cv2.VideoCapture runs per unique URL regardless of how many
+    clients are connected, which keeps CPU use manageable on the Jetson.
+    Frames are delivered to the browser at ~15 fps.
+    """
+    store = _get_frame_store(stream_url)
+    while True:
+        with store.lock:
+            frame = store.frame
+        if frame:
             yield (
                 b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
             )
-    finally:
-        cap.release()
+        time.sleep(1 / 15)
 
 
 @app.route("/feed/<cam_id>")
@@ -565,6 +738,39 @@ def api_get_days():
     return jsonify(get_days())
 
 
+@app.route("/api/log")
+@login_required
+def api_get_log():
+    """Return log file contents as a JSON array of lines.
+
+    Query params:
+      date=YYYY-MM-DD  — return that day's daily log (default: today)
+      lifetime=1       — return the lifetime log instead
+      tail=N           — only return the last N lines
+    """
+    tail = request.args.get("tail", type=int)
+
+    if request.args.get("lifetime"):
+        log_path = DATA_DIR / "lifetime_log.txt"
+    else:
+        date_str = request.args.get("date", datetime.now().strftime("%Y-%m-%d"))
+        if not _looks_like_date(date_str):
+            return jsonify({"error": "invalid date"}), 400
+        log_path = DATA_DIR / date_str / f"{date_str}_log.txt"
+
+    if not log_path.is_file():
+        return jsonify({"lines": [], "exists": False})
+
+    try:
+        with open(log_path, encoding="utf-8") as f:
+            lines = f.readlines()
+        if tail:
+            lines = lines[-tail:]
+        return jsonify({"lines": [l.rstrip("\n") for l in lines], "exists": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/restart-pipeline", methods=["POST"])
 @login_required
 @admin_required
@@ -592,6 +798,126 @@ def api_pipeline_status():
         return jsonify({"status": result.stdout.strip()})
     except Exception as e:
         return jsonify({"status": "unknown", "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# File browser — admin-only view of the filesystem rooted at FILES_ROOT
+# ---------------------------------------------------------------------------
+
+# Root directory exposed by the file browser.  Defaults to the SSS project
+# root (one level above User Deliverables/).  Override via SSS_FILES_ROOT.
+FILES_ROOT = Path(
+    os.environ.get("SSS_FILES_ROOT", BASE_DIR.parent)
+).resolve()
+
+# File extensions treated as viewable images (shown as inline preview)
+_IMAGE_EXTS  = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+# File extensions streamed as video in the browser
+_VIDEO_EXTS  = {".mp4", ".webm", ".mov"}
+# Plain-text extensions opened in the log viewer or as raw text
+_TEXT_EXTS   = {".txt", ".log", ".json", ".csv", ".md", ".py"}
+
+
+def _resolve_browse_path(subpath: str) -> Path | None:
+    """Resolve *subpath* relative to FILES_ROOT and verify it stays inside.
+
+    Returns the resolved Path, or None if the path escapes the root.
+    """
+    try:
+        target = (FILES_ROOT / subpath).resolve()
+        target.relative_to(FILES_ROOT)   # raises ValueError if outside
+        return target
+    except (ValueError, Exception):
+        return None
+
+
+def _file_size_str(size_bytes: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if size_bytes < 1024:
+            return f"{size_bytes:.0f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
+def _file_kind(path: Path) -> str:
+    ext = path.suffix.lower()
+    if ext in _IMAGE_EXTS:  return "image"
+    if ext in _VIDEO_EXTS:  return "video"
+    if ext in _TEXT_EXTS:   return "text"
+    return "file"
+
+
+@app.route("/browse", defaults={"subpath": ""})
+@app.route("/browse/<path:subpath>")
+@admin_required
+def file_browser(subpath):
+    """Admin file browser rooted at FILES_ROOT."""
+    target = _resolve_browse_path(subpath)
+    if target is None or not target.exists():
+        abort(404)
+
+    # If it's a file, serve it for download / inline viewing
+    if target.is_file():
+        kind = _file_kind(target)
+        mime_map = {
+            "image": None,          # send_from_directory will sniff it
+            "video": "video/mp4",
+            "text":  "text/plain",
+            "file":  "application/octet-stream",
+        }
+        as_attachment = kind == "file"
+        return send_from_directory(
+            str(target.parent),
+            target.name,
+            mimetype=mime_map[kind],
+            as_attachment=as_attachment,
+        )
+
+    # It's a directory — build listing
+    entries_dirs  = []
+    entries_files = []
+    for child in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+        try:
+            stat = child.stat()
+        except OSError:
+            continue
+        rel = child.relative_to(FILES_ROOT)
+        info = {
+            "name":     child.name,
+            "path":     str(rel),
+            "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+        }
+        if child.is_dir():
+            entries_dirs.append(info)
+        else:
+            info["size"] = _file_size_str(stat.st_size)
+            info["kind"] = _file_kind(child)
+            info["ext"]  = child.suffix.lower().lstrip(".")
+            entries_files.append(info)
+
+    # Build breadcrumb from subpath parts
+    crumbs = []
+    parts  = Path(subpath).parts if subpath else []
+    for i, part in enumerate(parts):
+        crumbs.append({
+            "name": part,
+            "path": str(Path(*parts[: i + 1])),
+        })
+
+    parent_path = str(Path(subpath).parent) if subpath else None
+    if parent_path == ".":
+        parent_path = ""
+
+    return render_template(
+        "files.html",
+        user=session["user"],
+        current_path=subpath,
+        crumbs=crumbs,
+        dirs=entries_dirs,
+        files=entries_files,
+        parent_path=parent_path,
+        root_name=FILES_ROOT.name,
+    )
 
 
 # ---------------------------------------------------------------------------

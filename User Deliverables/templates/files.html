@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Files{% endblock %}
+{% block extra_style %}
+.breadcrumb{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  font-family:var(--font-mono);font-size:.85rem;margin-bottom:14px;
+  color:var(--muted);
+}
+.breadcrumb a{color:var(--ink);text-decoration:none}
+.breadcrumb a:hover{text-decoration:underline}
+.breadcrumb .sep{color:var(--line)}
+.entry-grid{display:grid;gap:6px;}
+.entry{
+  display:grid;
+  grid-template-columns: 1.6rem 1fr auto auto;
+  align-items:center;gap:10px;
+  border:1px solid var(--line);border-radius:10px;background:#151c21;
+  padding:9px 12px;font-size:.86rem;
+  transition:background .15s;
+}
+.entry:hover{background:#1c262e}
+.entry-icon{font-size:1rem;line-height:1;text-align:center}
+.entry-name{font-family:var(--font-mono);word-break:break-all}
+.entry-name a{color:var(--ink);text-decoration:none}
+.entry-name a:hover{text-decoration:underline}
+.entry-meta{color:var(--muted);font-size:.78rem;white-space:nowrap;text-align:right}
+.entry-action a, .entry-action button{
+  border:1px solid var(--line);background:#1f2930;color:var(--ink);
+  border-radius:999px;padding:4px 10px;font-size:.78rem;font-weight:600;
+  cursor:pointer;text-decoration:none;white-space:nowrap;
+}
+.entry-action a:hover, .entry-action button:hover{filter:brightness(.95)}
+.section-label{
+  font-family:var(--font-head);font-size:.75rem;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted);margin:14px 0 6px;
+}
+.empty{border:1px dashed var(--line);border-radius:12px;padding:18px;color:var(--muted);background:#151c21;text-align:center}
+
+/* Image preview modal */
+.modal-bg{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);
+  z-index:100;align-items:center;justify-content:center;
+}
+.modal-bg.open{display:flex}
+.modal-box{
+  max-width:90vw;max-height:90vh;border-radius:14px;overflow:hidden;
+  border:1px solid var(--line);background:#0d1216;
+  display:flex;flex-direction:column;
+}
+.modal-box img{display:block;max-width:90vw;max-height:82vh;object-fit:contain}
+.modal-close{
+  align-self:flex-end;border:0;background:transparent;color:var(--muted);
+  font-size:1.4rem;cursor:pointer;padding:6px 10px;
+}
+.modal-close:hover{color:var(--ink)}
+{% endblock %}
+
+{% block body %}
+<main class="shell">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">SSS</div>
+      <div>
+        <h1>Substation Squirrel Sleuths</h1>
+        <div class="sub">File Browser</div>
+      </div>
+    </div>
+    <nav class="row">
+      <a class="pill" href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a class="pill" href="{{ url_for('archive') }}">Archive</a>
+      <a class="pill" href="{{ url_for('log_page') }}">Log</a>
+      {% if is_admin %}
+      <a class="pill active" href="{{ url_for('file_browser') }}">Files</a>
+      <a class="pill" href="{{ url_for('settings_page') }}">Settings</a>
+      {% endif %}
+      <a class="pill" href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+  </header>
+
+  {# ── Breadcrumb ── #}
+  <div class="breadcrumb">
+    <a href="{{ url_for('file_browser') }}">{{ root_name }}</a>
+    {% for crumb in crumbs %}
+    <span class="sep">/</span>
+    <a href="{{ url_for('file_browser', subpath=crumb.path) }}">{{ crumb.name }}</a>
+    {% endfor %}
+  </div>
+
+  <section class="card">
+
+    {# ── Parent dir link ── #}
+    {% if parent_path is not none %}
+    <div class="entry-grid" style="margin-bottom:6px">
+      <div class="entry">
+        <span class="entry-icon">&#128193;</span>
+        <span class="entry-name">
+          <a href="{{ url_for('file_browser', subpath=parent_path) if parent_path else url_for('file_browser') }}">..</a>
+        </span>
+        <span class="entry-meta"></span>
+        <span class="entry-action"></span>
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Directories ── #}
+    {% if dirs %}
+    <div class="section-label">Folders</div>
+    <div class="entry-grid">
+      {% for d in dirs %}
+      <div class="entry">
+        <span class="entry-icon">&#128193;</span>
+        <span class="entry-name">
+          <a href="{{ url_for('file_browser', subpath=d.path) }}">{{ d.name }}</a>
+        </span>
+        <span class="entry-meta">{{ d.modified }}</span>
+        <span class="entry-action"></span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {# ── Files ── #}
+    {% if files %}
+    <div class="section-label">Files</div>
+    <div class="entry-grid">
+      {% for f in files %}
+      <div class="entry">
+        <span class="entry-icon">
+          {% if f.kind == 'image' %}&#128247;
+          {% elif f.kind == 'video' %}&#127910;
+          {% elif f.kind == 'text'  %}&#128196;
+          {% else %}&#128190;{% endif %}
+        </span>
+        <span class="entry-name">
+          {% if f.kind == 'image' %}
+          <a href="#" onclick="openPreview('{{ url_for('file_browser', subpath=f.path) }}', '{{ f.name }}'); return false;">{{ f.name }}</a>
+          {% else %}
+          <a href="{{ url_for('file_browser', subpath=f.path) }}" {% if f.kind not in ('text',) %}download{% endif %}>{{ f.name }}</a>
+          {% endif %}
+        </span>
+        <span class="entry-meta">{{ f.size }} &mdash; {{ f.modified }}</span>
+        <span class="entry-action">
+          {% if f.kind == 'image' %}
+          <a href="{{ url_for('file_browser', subpath=f.path) }}" download>Download</a>
+          {% elif f.kind == 'video' %}
+          <a href="{{ url_for('file_browser', subpath=f.path) }}" download>Download</a>
+          {% elif f.kind == 'text' %}
+          <a href="{{ url_for('file_browser', subpath=f.path) }}" target="_blank">View</a>
+          {% else %}
+          <a href="{{ url_for('file_browser', subpath=f.path) }}" download>Download</a>
+          {% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if not dirs and not files %}
+    <div class="empty">This folder is empty.</div>
+    {% endif %}
+
+  </section>
+</main>
+
+{# ── Image preview modal ── #}
+<div class="modal-bg" id="modal" onclick="closePreview(event)">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <img id="modalImg" src="" alt="">
+  </div>
+</div>
+
+<script>
+function openPreview(src, name) {
+  document.getElementById('modalImg').src = src;
+  document.getElementById('modalImg').alt = name;
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  document.getElementById('modalImg').src = '';
+}
+function closePreview(e) {
+  if (e.target === document.getElementById('modal')) closeModal();
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+</script>
+{% endblock %}

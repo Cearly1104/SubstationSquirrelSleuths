@@ -18,6 +18,7 @@
 .feed-cell img{width:100%;border-radius:8px;background:#111;aspect-ratio:16/9;object-fit:cover;transition:opacity .2s}
 .feed-cell a:hover img{opacity:.8}
 @media (max-width:930px){.feed-grid{grid-template-columns:1fr}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 {% endblock %}
 
 {% block body %}
@@ -33,7 +34,9 @@
     <nav class="row">
       <a class="pill active" href="{{ url_for('dashboard') }}">Dashboard</a>
       <a class="pill" href="{{ url_for('archive') }}">Archive</a>
+      <a class="pill" href="{{ url_for('log_page') }}">Log</a>
       {% if is_admin %}
+      <a class="pill" href="{{ url_for('file_browser') }}">Files</a>
       <a class="pill" href="{{ url_for('settings_page') }}">Settings</a>
       {% endif %}
       <a class="pill" href="{{ url_for('logout') }}">Logout</a>
@@ -74,26 +77,20 @@
   {# ── Live Camera Feeds ── #}
   <section class="card" style="margin-bottom:16px;">
     <h3>Live Camera Feeds</h3>
+    {% if enabled_cameras %}
     <div class="feed-grid">
+      {% for cam in enabled_cameras %}
       <div class="feed-cell">
-        <h4>Camera 0</h4>
-        <a href="{{ url_for('live_view', cam_id='cam0') }}">
-          <img src="{{ url_for('live_feed', cam_id='cam0') }}" alt="Camera 0 Feed">
+        <h4>{{ cam.name }}</h4>
+        <a href="{{ url_for('live_view', cam_id=cam.name) }}">
+          <img src="{{ url_for('live_feed', cam_id=cam.name) }}" alt="{{ cam.name }} Feed">
         </a>
       </div>
-      <div class="feed-cell">
-        <h4>Camera 1</h4>
-        <a href="{{ url_for('live_view', cam_id='cam1') }}">
-          <img src="{{ url_for('live_feed', cam_id='cam1') }}" alt="Camera 1 Feed">
-        </a>
-      </div>
-      <div class="feed-cell">
-        <h4>Camera 2</h4>
-        <a href="{{ url_for('live_view', cam_id='cam2') }}">
-          <img src="{{ url_for('live_feed', cam_id='cam2') }}" alt="Camera 2 Feed">
-        </a>
-      </div>
+      {% endfor %}
     </div>
+    {% else %}
+    <div class="empty">No cameras are enabled. Enable cameras in Settings.</div>
+    {% endif %}
   </section>
 
   {# ── Media ── #}
@@ -133,28 +130,58 @@
     </div>
   </section>
 
-  {# ── Detection Log ── #}
+  {# ── System Log Preview ── #}
   <section class="card" style="margin-top:16px;">
-    <h3>Recent Detection Log</h3>
-    <div style="overflow:auto;">
-      <table>
-        <thead><tr><th>Time</th><th>Camera</th><th>Images</th><th>Videos</th></tr></thead>
-        <tbody>
-          {% if today_data %}
-            {% for entry in today_data.events %}
-            <tr>
-              <td class="muted">{{ entry.ts }}</td>
-              <td>{{ entry.cam }}</td>
-              <td>{{ entry.images | length }}</td>
-              <td>{{ entry.videos | length }}</td>
-            </tr>
-            {% endfor %}
-          {% else %}
-            <tr><td colspan="4" class="muted">No events recorded today.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;">System Log <span id="logDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-left:6px;vertical-align:middle;animation:pulse 1.5s ease infinite;"></span></h3>
+      <a href="{{ url_for('log_page') }}" class="pill" style="font-size:.82rem;padding:5px 12px;">Full Log &rarr;</a>
+    </div>
+    <div style="border:1px solid var(--line);border-radius:12px;background:#0d1216;padding:12px;max-height:220px;overflow:auto;" id="dashLogWrap">
+      <pre style="margin:0;font-family:var(--font-mono);font-size:.78rem;line-height:1.6;color:#c9d6e0;white-space:pre;" id="dashLogPre">Loading…</pre>
     </div>
   </section>
 </main>
+
+<script>
+(function () {
+  const pre  = document.getElementById('dashLogPre');
+  const wrap = document.getElementById('dashLogWrap');
+  const dot  = document.getElementById('logDot');
+
+  function colorize(line) {
+    const esc = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    if (/^={5,}/.test(line))     return `<span style="color:#4a7a9e;font-weight:700">${esc}</span>`;
+    if (/EP_START/.test(line))   return `<span style="color:#22c55e">${esc}</span>`;
+    if (/EP_END\s/.test(line))   return `<span style="color:#f59e0b">${esc}</span>`;
+    if (/EP_SUMMARY/.test(line)) return `<span style="color:#a78bfa">${esc}</span>`;
+    return esc;
+  }
+
+  async function fetchPreview() {
+    try {
+      const resp = await fetch('/api/log?tail=30');
+      const data = await resp.json();
+      if (!resp.ok || data.error) { pre.textContent = 'Error loading log.'; return; }
+      if (!data.exists || data.lines.length === 0) {
+        pre.innerHTML = '<span style="color:var(--muted)">No log entries for today yet.</span>';
+        dot.style.background = 'var(--muted)';
+        dot.style.animation = 'none';
+        return;
+      }
+      const atBottom = (wrap.scrollTop + wrap.clientHeight) >= (wrap.scrollHeight - 20);
+      pre.innerHTML = data.lines.map(colorize).join('\n');
+      if (atBottom) wrap.scrollTop = wrap.scrollHeight;
+      dot.style.background = '#22c55e';
+      dot.style.animation = 'pulse 1.5s ease infinite';
+    } catch (e) {
+      pre.textContent = 'Log unavailable.';
+    }
+  }
+
+  fetchPreview();
+  setInterval(fetchPreview, 8000);
+  // Start scrolled to bottom
+  setTimeout(() => { wrap.scrollTop = wrap.scrollHeight; }, 300);
+})();
+</script>
 {% endblock %}

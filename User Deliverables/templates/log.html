@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% block title %}System Log{% endblock %}
+{% block extra_style %}
+.log-controls{
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;
+}
+.log-controls select{
+  background:#1f2930;border:1px solid var(--line);color:var(--ink);border-radius:999px;
+  padding:7px 14px;font-size:.9rem;font-weight:600;cursor:pointer;
+}
+.log-controls select:focus{outline:none;border-color:var(--accent)}
+.log-btn{
+  border:1px solid var(--line);background:#1f2930;color:var(--ink);
+  border-radius:999px;padding:7px 14px;font-weight:600;font-size:.9rem;cursor:pointer;
+}
+.log-btn:hover{filter:brightness(.97)}
+.log-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.log-status{
+  margin-left:auto;font-size:.82rem;color:var(--muted);font-family:var(--font-mono);
+}
+.log-status .dot{
+  display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:#22c55e;margin-right:5px;animation:pulse 1.5s ease infinite;
+}
+.log-status .dot.paused{background:var(--muted);animation:none}
+@keyframes pulse{
+  0%,100%{opacity:1} 50%{opacity:.35}
+}
+.log-wrap{
+  border:1px solid var(--line);border-radius:14px;background:#0d1216;
+  padding:14px;overflow:auto;max-height:62vh;position:relative;
+}
+.log-pre{
+  margin:0;font-family:var(--font-mono);font-size:.8rem;line-height:1.65;
+  color:#c9d6e0;white-space:pre;
+}
+.log-pre .hdr{color:#4a7a9e;font-weight:700}
+.log-pre .start{color:#22c55e}
+.log-pre .end{color:#f59e0b}
+.log-pre .summary{color:#a78bfa}
+.log-empty{
+  border:1px dashed var(--line);border-radius:12px;padding:22px;
+  color:var(--muted);background:#151c21;text-align:center;font-size:.9rem;
+}
+.scroll-bottom{
+  position:sticky;bottom:10px;float:right;
+  border:1px solid var(--line);background:#1f2930;color:var(--ink);
+  border-radius:999px;padding:5px 12px;font-size:.8rem;cursor:pointer;
+  font-weight:600;opacity:.85;
+}
+.scroll-bottom:hover{opacity:1}
+{% endblock %}
+
+{% block body %}
+<main class="shell">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">SSS</div>
+      <div>
+        <h1>Substation Squirrel Sleuths</h1>
+        <div class="sub">System Log Viewer</div>
+      </div>
+    </div>
+    <nav class="row">
+      <a class="pill" href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a class="pill" href="{{ url_for('archive') }}">Archive</a>
+      <a class="pill active" href="{{ url_for('log_page') }}">Log</a>
+      {% if is_admin %}
+      <a class="pill" href="{{ url_for('file_browser') }}">Files</a>
+      <a class="pill" href="{{ url_for('settings_page') }}">Settings</a>
+      {% endif %}
+      <a class="pill" href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+  </header>
+
+  <section class="card">
+    <div class="log-controls">
+      {# View selector: daily dates + lifetime #}
+      <select id="logSelect">
+        {% for d in log_dates %}
+        <option value="{{ d }}" {% if d == today %}selected{% endif %}>
+          {{ d }}{% if d == today %} (Today){% endif %}
+        </option>
+        {% endfor %}
+        {% if not log_dates %}
+        <option value="" disabled selected>No logs yet</option>
+        {% endif %}
+      </select>
+
+      {% if lifetime_exists %}
+      <button class="log-btn" id="lifetimeBtn">Lifetime Log</button>
+      {% endif %}
+
+      <button class="log-btn active" id="refreshToggle" title="Toggle auto-refresh">
+        Auto-refresh
+      </button>
+
+      <span class="log-status">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Live</span>
+      </span>
+    </div>
+
+    <div class="log-wrap" id="logWrap">
+      <button class="scroll-bottom" id="scrollBtn" onclick="scrollBottom()">&#8595; Bottom</button>
+      <pre class="log-pre" id="logPre"><span class="hdr">Loading log…</span></pre>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  const select       = document.getElementById('logSelect');
+  const lifetimeBtn  = document.getElementById('lifetimeBtn');
+  const refreshToggle= document.getElementById('refreshToggle');
+  const statusDot    = document.getElementById('statusDot');
+  const statusText   = document.getElementById('statusText');
+  const logPre       = document.getElementById('logPre');
+  const logWrap      = document.getElementById('logWrap');
+
+  let autoRefresh = true;
+  let isLifetime  = false;
+  let timer       = null;
+  let lastLineCount = 0;
+
+  // ── Colorize a log line ──────────────────────────────────────────────────
+  function colorize(line) {
+    const esc = line
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;');
+    if (/^={5,}/.test(line))          return `<span class="hdr">${esc}</span>`;
+    if (/EP_START/.test(line))        return `<span class="start">${esc}</span>`;
+    if (/EP_END\s/.test(line))        return `<span class="end">${esc}</span>`;
+    if (/EP_SUMMARY/.test(line))      return `<span class="summary">${esc}</span>`;
+    return esc;
+  }
+
+  // ── Fetch and render ─────────────────────────────────────────────────────
+  async function fetchLog() {
+    let url = '/api/log?';
+    if (isLifetime) {
+      url += 'lifetime=1';
+    } else {
+      const date = select.value;
+      if (!date) { logPre.innerHTML = '<span class="hdr">No log selected.</span>'; return; }
+      url += 'date=' + encodeURIComponent(date);
+    }
+
+    try {
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        logPre.innerHTML = `<span class="end">Error: ${data.error || resp.status}</span>`;
+        return;
+      }
+      if (!data.exists || data.lines.length === 0) {
+        logPre.innerHTML = '<span class="hdr">No log entries yet.</span>';
+        lastLineCount = 0;
+        return;
+      }
+
+      const atBottom = (logWrap.scrollTop + logWrap.clientHeight) >= (logWrap.scrollHeight - 20);
+      logPre.innerHTML = data.lines.map(colorize).join('\n');
+
+      // Auto-scroll if we were already at the bottom or new lines arrived
+      if (atBottom || data.lines.length > lastLineCount) {
+        scrollBottom();
+      }
+      lastLineCount = data.lines.length;
+    } catch (e) {
+      logPre.innerHTML = `<span class="end">Fetch error: ${e.message}</span>`;
+    }
+  }
+
+  // ── Scroll helpers ───────────────────────────────────────────────────────
+  window.scrollBottom = function () {
+    logWrap.scrollTop = logWrap.scrollHeight;
+  };
+
+  // ── Timer management ─────────────────────────────────────────────────────
+  function startTimer() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(fetchLog, 5000);
+    statusDot.classList.remove('paused');
+    statusText.textContent = 'Live';
+    refreshToggle.classList.add('active');
+  }
+
+  function stopTimer() {
+    if (timer) { clearInterval(timer); timer = null; }
+    statusDot.classList.add('paused');
+    statusText.textContent = 'Paused';
+    refreshToggle.classList.remove('active');
+  }
+
+  // ── Event listeners ──────────────────────────────────────────────────────
+  select.addEventListener('change', () => {
+    isLifetime = false;
+    if (lifetimeBtn) lifetimeBtn.classList.remove('active');
+    lastLineCount = 0;
+    fetchLog();
+  });
+
+  if (lifetimeBtn) {
+    lifetimeBtn.addEventListener('click', () => {
+      isLifetime = !isLifetime;
+      lifetimeBtn.classList.toggle('active', isLifetime);
+      lastLineCount = 0;
+      fetchLog();
+    });
+  }
+
+  refreshToggle.addEventListener('click', () => {
+    autoRefresh = !autoRefresh;
+    autoRefresh ? startTimer() : stopTimer();
+  });
+
+  // ── Initial load ─────────────────────────────────────────────────────────
+  fetchLog();
+  startTimer();
+})();
+</script>
+{% endblock %}

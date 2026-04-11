@@ -1,47 +1,39 @@
 {
   "default_mode": "DETECTION",
-
   "modes": {
     "DETECTION": {
       "enabled": true,
       "model_name": "best.pt",
       "detection_fps": 10,
-      "detection_confidence": 0.10,
+      "detection_confidence": 0.1,
       "frozen_camera_threshold": 1.0,
       "episode_cutoff": 2.0,
       "consecutive_frame_threshold": 1,
       "save_annotated": true,
-      
       "rolling_buffer_length": 3,
       "segment_time": 1,
-
       "source_points": null,
       "plane_width_m": 4.5,
       "plane_height_m": 3.5,
       "pixels_per_meter": 120,
-
       "detection_logging": true
     },
-
     "RECORDING": {
       "enabled": true,
       "save_mp4": true,
       "delete_segments": false,
       "segment_time": 1,
-
       "run_detection_window": true,
       "model_name": "best.pt",
       "detection_fps": 10,
-      "detection_confidence": 0.10,
+      "detection_confidence": 0.1,
       "frozen_camera_threshold": 1.0,
       "save_annotated": true
     },
-
     "DEBUG": {
       "enabled": false
     }
   },
-
   "cameras": [
     {
       "enabled": false,
@@ -84,7 +76,7 @@
       }
     },
     {
-      "enabled": true,
+      "enabled": false,
       "id": 4,
       "name": "cam4",
       "url": "rtsp://localhost:8554/desktop",
