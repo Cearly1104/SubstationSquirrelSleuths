@@ -137,6 +137,11 @@ def run_detection_mode(settings, stop_event):
         "detection_confidence": cfg["detection_confidence"]
     }
 
+    # User Deliverables system settings
+    deliverables_cfg = {
+        "detection_logging": cfg["detection_logging"]
+    }
+
     ####################### Directory setup #######################
     det_mode_dir = Path("detections")
     temp_dir = det_mode_dir / "temp"
@@ -154,6 +159,7 @@ def run_detection_mode(settings, stop_event):
     # Analysis queue - episode video paths are submitted here after finalization
     detection_queues = {cam.id:queue.Queue() for cam in CAMERAS}
     analysis_queue = queue.Queue()
+    logging_queue = queue.Queue()
 
     # Initialize camera frame states here to avoid race condition
     for cam in CAMERAS:
@@ -167,11 +173,20 @@ def run_detection_mode(settings, stop_event):
     # Start the main detection thread
     detection_thread = threading.Thread(
         target=detection.squirrel_detector,
-        args=(CAMERAS, detection_cfg, detection_dir, detection_queues, analysis_queue, stop_event)
+        args=(CAMERAS, detection_cfg, detection_dir, detection_queues, analysis_queue, logging_queue, stop_event)
     )
     detection_thread.start()
     threads.append(detection_thread)
 
+    # Start the logging thread if enabled
+    if deliverables_cfg["detection_logging"]:
+        logging_thread = threading.Thread(
+            target=detection.episode_logger,
+            args=(CAMERAS, deliverables_cfg, logging_queue, det_mode_dir, stop_event)
+        )
+        logging_thread.start()
+        threads.append(logging_thread)
+    
     # Start a detection helper and recorder thread per camera
     for cam in CAMERAS:
         t0 = threading.Thread(target=detection.detection_helper, args=(cam, stop_event))
@@ -265,14 +280,17 @@ def run_recording_mode(settings, stop_event):
 
 if __name__ == "__main__":
 
+    # Load user settings from settings.json
     settings = load_settings()
     validate_settings(settings)
 
     stop_event = threading.Event()
     threads = []
 
+    # Set system's mode
     current_mode = Mode[settings["default_mode"]]
     
+    # Run system in selected mode
     if current_mode == Mode.DETECTION:
         threads = run_detection_mode(settings, stop_event)
     elif current_mode == Mode.RECORDING:
@@ -284,8 +302,6 @@ if __name__ == "__main__":
         stop_event.set()
         exit(1)
         
-
-    #######################  Testing ########################
     print("System is running")
 
     try:

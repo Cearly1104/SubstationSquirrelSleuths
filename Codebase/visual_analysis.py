@@ -91,7 +91,7 @@ def analysis_worker(config, analysis_dir, analysis_queue, stop):
         output_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            run_analysis(video_path, output_dir, cam_name, timestamp, config, device)
+            run_analysis(video_path, output_dir, cam_name, timestamp, config, device, stop)
         except Exception as e:
             import traceback
             print(f"[analysis] Error processing {video_path}: {e}")
@@ -99,7 +99,7 @@ def analysis_worker(config, analysis_dir, analysis_queue, stop):
 
 
 # ========================== Stage 1: Tracking ==========================
-def stage_track(video_path, output_dir, base, config, device, class_filter="squirrel"):
+def stage_track(video_path, output_dir, base, config, device, stop, class_filter="squirrel"):
     from ultralytics import YOLO
 
     print("[analysis] Stage 1/3: Tracking")
@@ -121,7 +121,7 @@ def stage_track(video_path, output_dir, base, config, device, class_filter="squi
 
     track_history = defaultdict(list)
 
-    while cap.isOpened():
+    while cap.isOpened() and not stop.is_set():
         ok, frame = cap.read()
         if not ok:
             break
@@ -159,7 +159,7 @@ def stage_track(video_path, output_dir, base, config, device, class_filter="squi
 
 
 # ========================== Stage 2: Heatmap ==========================
-def stage_heatmap(video_path, output_dir, base, config, device, class_filter="squirrel"):
+def stage_heatmap(video_path, output_dir, base, config, device, stop, class_filter="squirrel"):
     from ultralytics import YOLO, solutions
 
     print("[analysis] Stage 2/3: Heatmap")
@@ -192,7 +192,7 @@ def stage_heatmap(video_path, output_dir, base, config, device, class_filter="sq
 
     last_frame = None
 
-    while cap.isOpened():
+    while cap.isOpened() and not stop.is_set():
         ok, frame = cap.read()
         if not ok:
             break
@@ -235,7 +235,7 @@ def stage_heatmap(video_path, output_dir, base, config, device, class_filter="sq
 
 
 # ========================== Stage 3: Homography ==========================
-def stage_homography(video_path, output_dir, base, config, device, class_filter="squirrel"):
+def stage_homography(video_path, output_dir, base, config, device, stop, class_filter="squirrel"):
     from ultralytics import YOLO
 
     print("[analysis] Stage 3/3: Homography bird's-eye heatmap")
@@ -288,7 +288,7 @@ def stage_homography(video_path, output_dir, base, config, device, class_filter=
         cv2.rectangle(canvas, (0, 0), (bev_w - 1, bev_h - 1), (80, 80, 80), 2)
         return canvas
 
-    while cap.isOpened():
+    while cap.isOpened() and not stop.is_set():
         ok, frame = cap.read()
         if not ok:
             break
@@ -359,15 +359,15 @@ def stage_homography(video_path, output_dir, base, config, device, class_filter=
 
 
 # ========================== Pipeline Entry Point ==========================
-def run_analysis(video_path, output_dir, cam_name, timestamp, config, device):
+def run_analysis(video_path, output_dir, cam_name, timestamp, config, device, stop):
     video_path = str(video_path)
     base = f"{cam_name}_{timestamp.strftime('%Y-%m-%d_%I.%M.%S%p')}"
 
     print(f"[analysis] Starting sequential analysis on: {video_path}")
 
-    track_out = stage_track(video_path, output_dir, base, config, device)
-    heatmap_out = stage_heatmap(video_path, output_dir, base, config, device)
-    homography_out = stage_homography(video_path, output_dir, base, config, device)
+    track_out = stage_track(video_path, output_dir, base, config, device, stop)
+    heatmap_out = stage_heatmap(video_path, output_dir, base, config, device, stop)
+    homography_out = stage_homography(video_path, output_dir, base, config, device, stop)
 
     print("[analysis] All stages complete.")
     return {
