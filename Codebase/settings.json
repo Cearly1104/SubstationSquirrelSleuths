@@ -68,7 +68,7 @@
       "enabled": true,
       "id": 3,
       "name": "cam3",
-      "url": "rtsp://localhost:8554/desktop",
+      "url": "rtsp://localhost:8554/squirrel",
       "auth": {
         "username_env": null,
         "password_env": null

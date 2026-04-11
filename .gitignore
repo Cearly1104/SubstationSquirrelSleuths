@@ -1,5 +1,6 @@
 # Runtime data (captured images/videos — stays local to Jetson)
 data/
+Codebase/detections/
 
 # Python cache
 __pycache__/

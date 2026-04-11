@@ -85,13 +85,17 @@ def analysis_worker(config, analysis_dir, analysis_queue, stop):
         cam_name = item["cam_name"]
         timestamp = item["timestamp"]
 
+        print(f"[analysis] Received episode: {video_path} (cam: {cam_name})")
+
         output_dir = analysis_dir / timestamp.strftime("%Y-%m-%d_%I.%M.%S%p") / cam_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
         try:
             run_analysis(video_path, output_dir, cam_name, timestamp, config, device)
         except Exception as e:
+            import traceback
             print(f"[analysis] Error processing {video_path}: {e}")
+            traceback.print_exc()
 
 
 # ========================== Stage 1: Tracking ==========================
