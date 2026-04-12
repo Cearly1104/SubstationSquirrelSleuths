@@ -2,6 +2,7 @@ import time
 import subprocess
 import shutil
 import queue
+import pipeline_status
 
 def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, stop):
 
@@ -156,7 +157,7 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
     # Cleanup temp directory
     shutil.rmtree(episode_temp_dir)
 
-def recording_mode_recorder(cam, config, timestamp, results_dir, stop):
+def recording_mode_recorder(cam, config, timestamp, results_dir, stop, status_dir=None):
 
     ## Subdirectory creation
     output_dir = results_dir / timestamp.strftime("%Y-%m-%d_%I.%M.%S%p")
@@ -184,12 +185,17 @@ def recording_mode_recorder(cam, config, timestamp, results_dir, stop):
     print(f"{cam.name} recorder running")
     rec = subprocess.Popen(recorder, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
+    if status_dir:
+        pipeline_status.set_recording(status_dir, True)
+
     try:
         while not stop.is_set():
             time.sleep(0.5)
     finally:
         print(f"[{cam.name}] Shutting down.")
         rec.terminate()
+        if status_dir:
+            pipeline_status.set_recording(status_dir, False)
 
         # give filesystem time to finish final segment
         time.sleep(0.5)

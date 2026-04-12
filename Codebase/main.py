@@ -250,6 +250,10 @@ def run_recording_mode(settings, stop_event):
     rec_mode_dir = Path("recordings")
     rec_mode_dir.mkdir(parents=True, exist_ok=True)
 
+    # Status file always lives in detections/ so the web app can find it regardless of mode
+    status_dir = Path("detections")
+    status_dir.mkdir(parents=True, exist_ok=True)
+
     # Initialize camera frame states here to avoid race condition
     for cam in CAMERAS:
             detection.states[cam.id] = {
@@ -261,7 +265,7 @@ def run_recording_mode(settings, stop_event):
 
     timestamp = datetime.now()
     for cam in CAMERAS:
-        t = threading.Thread(target=visual_capture.recording_mode_recorder, args=(cam, capture_cfg, timestamp, rec_mode_dir, stop_event))
+        t = threading.Thread(target=visual_capture.recording_mode_recorder, args=(cam, capture_cfg, timestamp, rec_mode_dir, stop_event, status_dir))
         t.start()
         threads.append(t)
 
