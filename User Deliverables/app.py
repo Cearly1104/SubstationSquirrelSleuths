@@ -795,9 +795,25 @@ def api_pipeline_status():
             ["systemctl", "is-active", "sss-pipeline"],
             capture_output=True, text=True, timeout=5
         )
-        return jsonify({"status": result.stdout.strip()})
+        service_status = result.stdout.strip()
     except Exception as e:
         return jsonify({"status": "unknown", "error": str(e)}), 500
+
+    # Read recording/analysis state written by the pipeline
+    sub = {"recording": False, "analyzing": False}
+    status_file = DATA_DIR / "pipeline_status.json"
+    if status_file.is_file():
+        try:
+            with open(status_file) as f:
+                sub = json.load(f)
+        except Exception:
+            pass
+
+    return jsonify({
+        "status": service_status,
+        "recording": sub.get("recording", False),
+        "analyzing": sub.get("analyzing", False),
+    })
 
 
 # ---------------------------------------------------------------------------

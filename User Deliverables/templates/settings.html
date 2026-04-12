@@ -146,13 +146,37 @@
       Saved settings take effect after the pipeline restarts.
       Use the button to restart it automatically.
     </span>
-    <button type="button" id="restart-btn" class="btn secondary" style="white-space:nowrap" onclick="restartPipeline()">
+    <button type="button" id="restart-btn" class="btn secondary" style="white-space:nowrap" onclick="restartPipeline()" disabled>
       Restart Pipeline
     </button>
     <span id="restart-status" style="font-size:.86rem"></span>
   </div>
 
   <script>
+  async function checkPipelineStatus() {
+    const btn    = document.getElementById('restart-btn');
+    const status = document.getElementById('restart-status');
+    try {
+      const res  = await fetch('{{ url_for("api_pipeline_status") }}');
+      const data = await res.json();
+      const busy = data.recording || data.analyzing;
+      btn.disabled = busy;
+      if (busy) {
+        const what = data.recording && data.analyzing ? 'recording and analyzing'
+                   : data.recording ? 'recording an episode'
+                   : 'analyzing an episode';
+        status.style.color = 'var(--muted)';
+        status.textContent = `Pipeline is ${what} \u2014 wait until it finishes`;
+      } else if (status.textContent.startsWith('Pipeline is recording') ||
+                 status.textContent.startsWith('Pipeline is analyzing')) {
+        status.style.color = 'var(--muted)';
+        status.textContent = '';
+      }
+    } catch (e) {
+      btn.disabled = false;
+    }
+  }
+
   async function restartPipeline() {
     const btn    = document.getElementById('restart-btn');
     const status = document.getElementById('restart-status');
@@ -168,11 +192,11 @@
       } else {
         status.style.color = '#ffb4b4';
         status.textContent = 'Error: ' + (data.error || 'unknown');
+        btn.disabled = false;
       }
     } catch (e) {
       status.style.color = '#ffb4b4';
       status.textContent = 'Request failed';
-    } finally {
       btn.disabled = false;
     }
   }
@@ -186,11 +210,14 @@
         if (data.status === 'active') {
           status.style.color = '#b4ffcc';
           status.textContent = 'Pipeline is active \u2713';
+          // periodic check will disable the button if it starts recording/analyzing
+          document.getElementById('restart-btn').disabled = false;
           return;
         }
         if (data.status === 'failed') {
           status.style.color = '#ffb4b4';
           status.textContent = 'Pipeline failed to start';
+          document.getElementById('restart-btn').disabled = false;
           return;
         }
         status.style.color = 'var(--muted)';
@@ -199,7 +226,12 @@
     }
     status.style.color = 'var(--muted)';
     status.textContent = 'Timed out waiting for active status';
+    document.getElementById('restart-btn').disabled = false;
   }
+
+  // Check status on load, then every 10 seconds
+  checkPipelineStatus();
+  setInterval(checkPipelineStatus, 10000);
   </script>
 </main>
 {% endblock %}

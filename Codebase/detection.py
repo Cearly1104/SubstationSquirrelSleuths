@@ -6,6 +6,7 @@ import torch
 import queue
 from datetime import datetime
 from dataclasses import dataclass
+import pipeline_status
 
 # Dictionary of each camera's frame state
 # Contains a frame, timestamp, and write lock to eliminate race conditions
@@ -81,7 +82,7 @@ def batch_frames(cameras, frozen_threshold):
 # Main detection function, takes fresh frames from helper->batch functions and processes them with a YOLO model
 # Model outputs squirrel detections and prompts the capture system to record squirrel detection episodes
 # Detection logs are taken and annotated processed frames are stored for analysis system usage, prompted by episode write completion
-def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis_queue, logging_queue, stop):
+def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis_queue, logging_queue, stop, status_dir=None):
 
     cam_lookup = {cam.id: cam for cam in cameras}
 
@@ -160,7 +161,9 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
 
                         state["in_episode"] = True
                         state["start_time"] = timestamp
-                        
+                        if status_dir:
+                            pipeline_status.set_recording(status_dir, True)
+
                         # Set up episode naming and storage
                         episode_name = timestamp.strftime("ep_%Y-%m-%d_%I.%M.%S%p") # Format: ep_YYYY-MM-DD_HH.MM.SS AM/PM
                         episode_dir = detection_dir / episode_name / cam_name
@@ -234,6 +237,9 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
 
                             # Update camera's episode state after episode completion
                             state["in_episode"] = False
+                            if status_dir:
+                                still_recording = any(s["in_episode"] for s in episode_state.values())
+                                pipeline_status.set_recording(status_dir, still_recording)
                             state["episode_dir"] = None
                             state["consecutive_frames"] = 0
                             state["last_detection_time"] = None

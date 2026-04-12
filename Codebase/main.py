@@ -173,7 +173,7 @@ def run_detection_mode(settings, stop_event):
     # Start the main detection thread
     detection_thread = threading.Thread(
         target=detection.squirrel_detector,
-        args=(CAMERAS, detection_cfg, detection_dir, detection_queues, analysis_queue, logging_queue, stop_event)
+        args=(CAMERAS, detection_cfg, detection_dir, detection_queues, analysis_queue, logging_queue, stop_event, det_mode_dir)
     )
     detection_thread.start()
     threads.append(detection_thread)
@@ -202,7 +202,7 @@ def run_detection_mode(settings, stop_event):
     # Start the analysis worker thread (processes one video at a time, sequentially)
     analysis_thread = threading.Thread(
         target=visual_analysis.analysis_worker,
-        args=(analysis_cfg, daily_dir, analysis_queue, stop_event),
+        args=(analysis_cfg, daily_dir, analysis_queue, stop_event, det_mode_dir),
         daemon=True
     )
     analysis_thread.start()

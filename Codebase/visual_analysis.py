@@ -7,6 +7,7 @@ from queue import Empty
 
 import cv2
 import numpy as np
+import pipeline_status
 
 
 # ========================== Homography Defaults ==========================
@@ -69,7 +70,7 @@ def _order_points(pts):
 
 # ========================== Analysis Worker ==========================
 
-def analysis_worker(config, analysis_dir, analysis_queue, stop):
+def analysis_worker(config, analysis_dir, analysis_queue, stop, status_dir=None):
     """Watches for completed episode videos and runs sequential analysis on each."""
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -90,12 +91,17 @@ def analysis_worker(config, analysis_dir, analysis_queue, stop):
         output_dir = analysis_dir / timestamp.strftime("%Y-%m-%d_%I.%M.%S%p") / cam_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        if status_dir:
+            pipeline_status.set_analyzing(status_dir, True)
         try:
             run_analysis(video_path, output_dir, cam_name, timestamp, config, device, stop)
         except Exception as e:
             import traceback
             print(f"[analysis] Error processing {video_path}: {e}")
             traceback.print_exc()
+        finally:
+            if status_dir:
+                pipeline_status.set_analyzing(status_dir, False)
 
 
 # ========================== Stage 1: Tracking ==========================
