@@ -70,7 +70,13 @@
       <div class="stat"><small>Uptime</small><strong>{{ stats.uptime }}</strong></div>
       <div class="stat"><small>Storage Free</small><strong>{{ stats.storage_free }}</strong></div>
       <div class="stat"><small>GPU Temp</small><strong>{{ stats.gpu_temp }}</strong></div>
-      <div class="stat"><small>System Status</small><strong>{{ stats.status }}</strong></div>
+      <div class="stat">
+        <small>Pipeline Status</small>
+        <strong id="pipeline-status-text" style="display:flex;align-items:center;gap:6px;">
+          <span id="pipeline-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--muted)"></span>
+          <span id="pipeline-status-label">{{ stats.status }}</span>
+        </strong>
+      </div>
     </div>
   </section>
 
@@ -182,6 +188,49 @@
   setInterval(fetchPreview, 8000);
   // Start scrolled to bottom
   setTimeout(() => { wrap.scrollTop = wrap.scrollHeight; }, 300);
+})();
+</script>
+
+<script>
+(function () {
+  const dot   = document.getElementById('pipeline-status-dot');
+  const label = document.getElementById('pipeline-status-label');
+
+  const STATES = {
+    offline:   { text: 'OFFLINE',              color: '#ffb4b4', pulse: false },
+    idle:      { text: 'IDLE',                  color: '#22c55e', pulse: false },
+    recording: { text: 'RECORDING',             color: '#f59e0b', pulse: true  },
+    analyzing: { text: 'ANALYZING',             color: '#a78bfa', pulse: true  },
+    both:      { text: 'RECORDING + ANALYZING', color: '#f59e0b', pulse: true  },
+  };
+
+  function applyState(s) {
+    label.textContent    = s.text;
+    dot.style.background = s.color;
+    dot.style.animation  = s.pulse ? 'pulse 1.5s ease infinite' : 'none';
+    label.style.color    = s.color;
+  }
+
+  async function fetchPipelineStatus() {
+    try {
+      const res  = await fetch('{{ url_for("api_pipeline_status") }}');
+      const data = await res.json();
+      const up   = data.status === 'active' || data.status === 'activating';
+      if (!up)                              applyState(STATES.offline);
+      else if (data.recording && data.analyzing) applyState(STATES.both);
+      else if (data.recording)              applyState(STATES.recording);
+      else if (data.analyzing)              applyState(STATES.analyzing);
+      else                                  applyState(STATES.idle);
+    } catch (e) {
+      label.textContent   = 'UNKNOWN';
+      label.style.color   = 'var(--muted)';
+      dot.style.background = 'var(--muted)';
+      dot.style.animation  = 'none';
+    }
+  }
+
+  fetchPipelineStatus();
+  setInterval(fetchPipelineStatus, 8000);
 })();
 </script>
 {% endblock %}
