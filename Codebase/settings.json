@@ -10,6 +10,7 @@
       "episode_cutoff": 2.0,
       "consecutive_frame_threshold": 1,
       "save_annotated": true,
+      "episode_grouping_cutoff": 20,
       "rolling_buffer_length": 3,
       "segment_time": 1,
       "source_points": [
@@ -71,7 +72,7 @@
       }
     },
     {
-      "enabled": true,
+      "enabled": false,
       "id": 3,
       "name": "cam3",
       "url": "rtsp://localhost:8554/squirrel",
@@ -81,9 +82,19 @@
       }
     },
     {
-      "enabled": false,
+      "enabled": true,
       "id": 4,
       "name": "cam4",
+      "url": "rtsp://localhost:8554/desktop",
+      "auth": {
+        "username_env": null,
+        "password_env": null
+      }
+    },
+    {
+      "enabled": true,
+      "id": 5,
+      "name": "cam5",
       "url": "rtsp://localhost:8554/desktop",
       "auth": {
         "username_env": null,

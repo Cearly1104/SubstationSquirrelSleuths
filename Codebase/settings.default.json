@@ -11,6 +11,7 @@
       "episode_cutoff": 2.0,
       "consecutive_frame_threshold": 1,
       "save_annotated": true,
+      "episode_grouping_cutoff": 20,
 
       "rolling_buffer_length": 3,
       "segment_time": 1,

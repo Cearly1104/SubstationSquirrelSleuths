@@ -21,6 +21,7 @@ class Event:
     event_type: str
     timestamp: datetime
     confidence: float
+    group_dir: str = ""
 
 @dataclass
 class EpisodeSummary:
@@ -30,6 +31,10 @@ class EpisodeSummary:
     squirrels: int
     avg_confidence: float
 
+
+# Globals to keep track of cross-camera event grouping info, grouped based on user-defined seconds since last activity
+group_last_activity = None  # set to timestamp of last activity
+current_group_dir = ""      # set to the string of the start timestamp of last activity's event
 
 # Detection helper function to grab a camera frame and its associated timestamp to be passed to the YOLO model
 # One helper per camera
@@ -111,6 +116,7 @@ def batch_frames(cameras, frozen_threshold):
 # Model outputs squirrel detections and prompts the capture system to record squirrel detection episodes
 # Detection logs are taken and annotated processed frames are stored for analysis system usage, prompted by episode write completion
 def squirrel_detector(cameras, config, detection_dir, detection_queues, logging_queue, stop, status_dir=None):
+    global group_last_activity, current_group_dir
 
     cam_lookup = {cam.id: cam for cam in cameras}
 
@@ -142,6 +148,7 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, logging_
     # Episode control variables
     episode_cutoff = config["episode_cutoff"]       # Consecutive seconds of no squirrel detection before an episode can be ended
     consecutive_frame_threshold = config["consecutive_frame_threshold"] # Required consecutive detection frames before an episode can be started
+    group_cutoff = config["episode_grouping_cutoff"]    # Consecutive seconds since last activity on any camera to control episode grouping
 
     # Main loop, parses frames, associates results with proper camera and prompts capture system for episode start and end
     # Frames with detections are annotated with bounding boxes are saved and path directories are passed to analysis system for tracking
@@ -183,25 +190,35 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, logging_
 
                     # Start an episode if squirrel detected and not already in one
                     if not state["in_episode"] and state["consecutive_frames"] > consecutive_frame_threshold:
-                        event = Event(cam_id, "START", timestamp, conf)
-                        detection_queues[cam_id].put(event)
-                        logging_queue.put(event)
-
-                        state["in_episode"] = True
+                    
                         state["start_time"] = timestamp
                         if status_dir:
                             pipeline_status.set_recording(status_dir, True)
 
                         # Set up episode naming and storage
-                        episode_name = timestamp.strftime("ep_%Y-%m-%d_%I.%M.%S%p") # Format: ep_YYYY-MM-DD_HH.MM.SS AM/PM
-                        episode_dir = detection_dir / episode_name / cam_name
-                        episode_dir.mkdir(parents=True, exist_ok=True)
-                        state["episode_dir"] = episode_dir
+                        event_ts_str = timestamp.strftime("%Y-%m-%d_%I.%M.%S%p")
+
+                        # Create new group if first, too much time passed since last episode ended, and no other events are currently active
+                        any_active = any(s["in_episode"] for s in episode_state.values())
+                        if not any_active and (group_last_activity is None or (timestamp - group_last_activity).total_seconds() > group_cutoff):
+                            current_group_dir = f"ep_{event_ts_str}"
+
+                        group_last_activity = timestamp
+                        state["in_episode"] = True
+
+                        event = Event(cam_id, "START", timestamp, conf, group_dir=current_group_dir)
+                        detection_queues[cam_id].put(event)
+                        logging_queue.put(event)
+
+                        event_dir = detection_dir / event_ts_str / cam_name
+                        event_dir.mkdir(parents=True, exist_ok=True)
+
+                        state["episode_dir"] = event_dir
 
                         # Open an OpenCV VideoWriter to write raw processed frames into an mp4 for analysis input
                         h, w = result.orig_img.shape[:2]
                         state["episode_writer"] = cv2.VideoWriter(
-                            str(episode_dir / "_raw.mp4"),
+                            str(event_dir / "_raw.mp4"),
                             cv2.VideoWriter_fourcc(*"mp4v"),
                             config["detection_fps"],
                             (w, h)
@@ -209,7 +226,7 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, logging_
                         # If enabled, do the same but for an annotated video output
                         if config["save_annotated"]:
                             state["annotated_writer"] = cv2.VideoWriter(
-                            str(episode_dir / "_untracked.mp4"),
+                            str(event_dir / "_untracked.mp4"),
                             cv2.VideoWriter_fourcc(*"mp4v"),
                             config["detection_fps"],
                             (w, h)
@@ -225,6 +242,7 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, logging_
                     if state["in_episode"]:
                         last_time = state["last_detection_time"]
                         if last_time and (timestamp - last_time).total_seconds() >= episode_cutoff:
+                            group_last_activity = last_time
                             event = Event(cam_id, "END", timestamp, conf)
                             
                             avg_conf = (state["conf_sum"] / state["conf_count"] if state["conf_count"] > 0 else 0.0)
@@ -251,7 +269,6 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, logging_
                             if state["annotated_writer"] is not None:
                                 state["annotated_writer"].release()
                                 state["annotated_writer"] = None
-
 
                             # Update camera's episode state after episode completion
                             state["in_episode"] = False
@@ -359,7 +376,7 @@ def recording_mode_detector(cameras, config, timestamp, output_dir, stop):
             if writer is not None:
                 writer.release()
                 
-def episode_logger(cameras, config, logging_queue, det_mode_dir, stop_event):
+def episode_logger(cameras, logging_queue, det_mode_dir, stop_event):
 
     cam_lookup = {cam.id: cam for cam in cameras}
     

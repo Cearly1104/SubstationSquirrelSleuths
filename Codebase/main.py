@@ -118,7 +118,8 @@ def run_detection_mode(settings, stop_event):
         "frozen_camera_threshold": cfg["frozen_camera_threshold"],
         "save_annotated": cfg["save_annotated"],
         "episode_cutoff": cfg["episode_cutoff"],
-        "consecutive_frame_threshold": cfg["episode_cutoff"]
+        "consecutive_frame_threshold": cfg["episode_cutoff"],
+        "episode_grouping_cutoff": cfg["episode_grouping_cutoff"]
     }
 
     # Capture system settings
@@ -148,9 +149,8 @@ def run_detection_mode(settings, stop_event):
     daily_dir = det_mode_dir / datetime.now().strftime("%Y-%m-%d")
     detection_dir = temp_dir / "detection"
     capture_dir = temp_dir / "capture"
-    analysis_dir = temp_dir / "analysis"
 
-    for path in [det_mode_dir, temp_dir, daily_dir, detection_dir, capture_dir, analysis_dir]:
+    for path in [det_mode_dir, temp_dir, daily_dir, detection_dir, capture_dir]:
         path.mkdir(parents=True, exist_ok=True)
 
     ####################### Process Setup ########################
@@ -182,7 +182,7 @@ def run_detection_mode(settings, stop_event):
     if deliverables_cfg["detection_logging"]:
         logging_thread = threading.Thread(
             target=detection.episode_logger,
-            args=(CAMERAS, deliverables_cfg, logging_queue, det_mode_dir, stop_event)
+            args=(CAMERAS, logging_queue, det_mode_dir, stop_event)
         )
         logging_thread.start()
         threads.append(logging_thread)
@@ -191,7 +191,7 @@ def run_detection_mode(settings, stop_event):
     for cam in CAMERAS:
         t0 = threading.Thread(target=detection.detection_helper, args=(cam, stop_event))
         t1 = threading.Thread(target=visual_capture.episode_recorder,
-            args=(cam, capture_cfg, capture_dir, daily_dir, detection_queues[cam.id], analysis_queue, stop_event))
+            args=(cam, capture_cfg, capture_dir, detection_queues[cam.id], analysis_queue, stop_event))
         
         t0.start()
         t1.start()
@@ -202,7 +202,7 @@ def run_detection_mode(settings, stop_event):
     # Start the analysis worker thread (processes one video at a time, sequentially)
     analysis_thread = threading.Thread(
         target=visual_analysis.analysis_worker,
-        args=(analysis_cfg, daily_dir, analysis_queue, stop_event, det_mode_dir),
+        args=(analysis_cfg, analysis_queue, stop_event, det_mode_dir),
         kwargs={"logging_queue": logging_queue if deliverables_cfg["detection_logging"] else None},
         daemon=True
     )

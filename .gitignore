@@ -1,6 +1,7 @@
 # Runtime data (captured images/videos — stays local to Jetson)
 data/
 Codebase/detections/
+Codebase/recordings/
 
 # Python cache
 __pycache__/
@@ -13,3 +14,4 @@ __pycache__/
 # OS junk
 .DS_Store
 Thumbs.db
+.vscode

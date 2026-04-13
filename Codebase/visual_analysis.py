@@ -106,7 +106,7 @@ def _order_points(pts):
 
 # ========================== Analysis Worker ==========================
 
-def analysis_worker(config, analysis_dir, analysis_queue, stop, status_dir=None, logging_queue=None):
+def analysis_worker(config, analysis_queue, stop, status_dir=None, logging_queue=None):
     """Watches for completed episode videos and runs sequential analysis on each."""
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -121,10 +121,13 @@ def analysis_worker(config, analysis_dir, analysis_queue, stop, status_dir=None,
         video_path = item["clip_path"]
         cam_name = item["cam_name"]
         timestamp = item["timestamp"]
+        group_dir = item["group_dir"]
 
         print(f"[analysis] Received episode: {video_path} (cam: {cam_name})")
 
-        output_dir = analysis_dir / timestamp.strftime("%Y-%m-%d_%I.%M.%S%p") / cam_name
+        episode_ts_str = timestamp.strftime("%Y-%m-%d_%I.%M.%S%p")
+        date_str = timestamp.strftime("%Y-%m-%d")
+        output_dir = Path("detections") / date_str / group_dir / episode_ts_str / cam_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
         if status_dir:
