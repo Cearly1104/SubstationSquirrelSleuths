@@ -36,23 +36,50 @@ class EpisodeSummary:
 def detection_helper(camera, stop):
 
     state = states[camera.id]
-    
-    # Use OpenCV to open the camera feed for frame capture
-    cap = cv2.VideoCapture(camera.url, cv2.CAP_FFMPEG)
-    if not cap.isOpened():
-        raise RuntimeError(f"Could not open video/stream: {camera.url}")
-    
+
+    # Retry connecting to the stream — cameras and demo RTSP streams may not
+    # be available the instant the pipeline starts.  Retry for up to 30 s
+    # before giving up, so a slow-starting source doesn't silently kill the
+    # thread.
+    cap = None
+    for _ in range(30):
+        if stop.is_set():
+            return
+        cap = cv2.VideoCapture(camera.url, cv2.CAP_FFMPEG)
+        if cap.isOpened():
+            break
+        cap.release()
+        cap = None
+        time.sleep(1)
+
+    if cap is None:
+        raise RuntimeError(f"Could not open video/stream after 30 attempts: {camera.url}")
+
     # Set low frame capture buffersize for low latency
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-    # Grab frame+current timestamp in a continuous loop 
+    # Grab frame+current timestamp in a continuous loop
+    # Track consecutive empty reads — if the stream stalls after connecting
+    # (e.g. mediamtx accepted the connection before the publisher was ready),
+    # reopen the capture rather than looping on empty reads indefinitely.
+    empty_count = 0
     while not stop.is_set():
         ret, frame = cap.read()
         timestamp = datetime.now()
         if not ret:
+            empty_count += 1
             time.sleep(0.01)
+            # ~3 s of consecutive empty reads → reconnect
+            if empty_count >= 300:
+                cap.release()
+                time.sleep(1)
+                cap = cv2.VideoCapture(camera.url, cv2.CAP_FFMPEG)
+                if cap.isOpened():
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                empty_count = 0
             continue
-        
+        empty_count = 0
+
         # Update the camera's latest frame info if unlocked
         with state["lock"]:
             state["frame"] = frame

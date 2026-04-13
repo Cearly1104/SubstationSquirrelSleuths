@@ -859,6 +859,299 @@ def api_pipeline_status():
 
 
 # ---------------------------------------------------------------------------
+# Demo mode — headless demo using a practice RTSP video
+# ---------------------------------------------------------------------------
+
+# Shared state for the demo orchestration thread
+_demo_lock = threading.Lock()
+_demo_stop_event = threading.Event()
+_demo_state = {
+    "status": "idle",   # idle | starting | running | stopping | done | error
+    "message": "",
+    "mediamtx_proc": None,
+    "ffmpeg_proc": None,
+    "thread": None,
+}
+
+SSS_DIR = BASE_DIR.parent  # /home/sss/SSS — where mediamtx.yml lives
+DEMO_RTSP_URL = "rtsp://localhost:8554/squirrel"
+
+DEMO_FFMPEG_CMD = [
+    "ffmpeg", "-re",
+    "-i", "/home/sss/Downloads/Squirrel.mp4",
+    "-f", "lavfi",
+    "-i", "color=black:size=1920x1080:rate=30",
+    "-filter_complex", "[0:v][1:v]concat=n=2:v=1[out]",
+    "-map", "[out]",
+    "-c:v", "libx264",
+    "-preset", "ultrafast",
+    "-tune", "zerolatency",
+    # baseline profile + repeat-headers: SPS/PPS sent with every keyframe so
+    # OpenCV can sync immediately when connecting mid-stream, no matter when
+    # the pipeline connects.  Single-slice encoding (-x264-params slices=1)
+    # prevents the multi-slice frames that corrupt OpenCV's H.264 decoder.
+    "-profile:v", "baseline",
+    "-pix_fmt", "yuv420p",
+    "-x264-params", "repeat-headers=1:slices=1",
+    "-g", "30",
+    "-keyint_min", "30",
+    "-sc_threshold", "0",
+    "-an",
+    "-rtsp_transport", "tcp",
+    "-f", "rtsp",
+    DEMO_RTSP_URL,
+]
+
+
+def _read_pipeline_status():
+    status_file = DATA_DIR / "pipeline_status.json"
+    try:
+        if status_file.is_file():
+            with open(status_file) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"recording": False, "analyzing": False}
+
+
+def _rtsp_stream_ready(url, stop_event, max_wait=20):
+    """Poll until the RTSP stream accepts a connection or timeout/stop.
+
+    Uses cv2.VideoCapture so we're testing the exact same path the pipeline
+    uses.  Returns True when ready, False on timeout or stop.
+
+    Crucially, checks that a frame can actually be *read* — not just that the
+    TCP connection was accepted.  mediamtx accepts RTSP reader connections
+    before a publisher is active, so isOpened()==True is not sufficient.
+    """
+    import cv2
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        if stop_event.is_set():
+            return False
+        cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+        if cap.isOpened():
+            ret, _ = cap.read()
+            cap.release()
+            if ret:
+                return True
+        else:
+            cap.release()
+        # Brief interruptible wait before next attempt
+        stop_event.wait(1.0)
+    return False
+
+
+def _kill_proc(proc):
+    """Terminate a subprocess, escalating to SIGKILL if needed."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def _demo_worker():
+    """Background thread that orchestrates the full demo sequence."""
+    stop = _demo_stop_event
+    mediamtx_proc = None
+    ffmpeg_proc = None
+
+    def set_state(status, message):
+        with _demo_lock:
+            _demo_state["status"] = status
+            _demo_state["message"] = message
+
+    def stopped():
+        return stop.is_set()
+
+    try:
+        # 1. Start mediamtx from the SSS working directory
+        set_state("starting", "Starting RTSP server…")
+        mediamtx_proc = subprocess.Popen(
+            ["mediamtx"],
+            cwd=str(SSS_DIR),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        with _demo_lock:
+            _demo_state["mediamtx_proc"] = mediamtx_proc
+
+        # Give mediamtx a moment to bind its port
+        if stop.wait(3.0):
+            return
+
+        if stopped():
+            return
+
+        # 2. Start ffmpeg RTSP stream — video begins playing (black buffer starts)
+        set_state("running", "Starting video stream…")
+        ffmpeg_proc = subprocess.Popen(
+            DEMO_FFMPEG_CMD,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        with _demo_lock:
+            _demo_state["ffmpeg_proc"] = ffmpeg_proc
+
+        # 3. Wait until a frame can actually be decoded from the stream — not
+        #    just that the TCP connection was accepted.  mediamtx accepts reader
+        #    connections before a publisher is ready, so a bare isOpened() check
+        #    is not enough.  With the H.264 fixes this usually passes in <2 s.
+        set_state("running", "Waiting for RTSP stream to be ready…")
+        if not _rtsp_stream_ready(DEMO_RTSP_URL, stop, max_wait=20):
+            if not stopped():
+                raise RuntimeError("RTSP stream did not become ready in time")
+            return
+
+        if stopped():
+            return
+
+        # 4. Restart the pipeline — stream is confirmed live, so detection_helper
+        #    will get real frames immediately.  The remaining black buffer gives
+        #    the pipeline time to load the model before squirrel footage begins.
+        set_state("running", "Restarting pipeline…")
+        subprocess.run(
+            ["sudo", "/usr/bin/systemctl", "restart", "sss-pipeline"],
+            check=True, timeout=15
+        )
+
+        # 5. Wait for pipeline to become active
+        set_state("running", "Waiting for pipeline to start…")
+        for _ in range(20):
+            if stop.wait(2.0):
+                return
+            try:
+                r = subprocess.run(
+                    ["systemctl", "is-active", "sss-pipeline"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if r.stdout.strip() == "active":
+                    break
+            except Exception:
+                pass
+
+        if stopped():
+            return
+
+        # 6. Wait for recording to begin (squirrel detected) — up to 3 min
+        set_state("running", "Waiting for squirrel detection…")
+        recording_started = False
+        for _ in range(90):
+            if stop.wait(2.0):
+                return
+            ps = _read_pipeline_status()
+            if ps.get("analyzing", False):
+                # Jumped straight to analyzing (very short episode)
+                recording_started = True
+                break
+            if ps.get("recording", False):
+                recording_started = True
+                set_state("running", "Squirrel detected — recording episode…")
+                break
+
+        if stopped():
+            return
+
+        # 7. Wait for the recording to finish and analysis to begin — up to 3 min
+        if recording_started and not _read_pipeline_status().get("analyzing", False):
+            for _ in range(90):
+                if stop.wait(2.0):
+                    return
+                if _read_pipeline_status().get("analyzing", False):
+                    break
+
+        if stopped():
+            return
+
+        # 8. Wait for analysis to finish — up to 5 min
+        analysis_started = _read_pipeline_status().get("analyzing", False)
+        if analysis_started:
+            set_state("running", "Analysis in progress — waiting for completion…")
+            for _ in range(150):
+                if stop.wait(2.0):
+                    return
+                if not _read_pipeline_status().get("analyzing", False):
+                    break
+
+        set_state("done", "Demo complete.")
+
+    except Exception as e:
+        set_state("error", str(e))
+
+    finally:
+        # Always clean up both processes
+        _kill_proc(ffmpeg_proc)
+        time.sleep(1)
+        _kill_proc(mediamtx_proc)
+        with _demo_lock:
+            _demo_state["mediamtx_proc"] = None
+            _demo_state["ffmpeg_proc"] = None
+            _demo_state["thread"] = None
+        # If we returned early due to stop, reset to idle so the UI unlocks
+        with _demo_lock:
+            if _demo_state["status"] == "stopping":
+                _demo_state["status"] = "idle"
+                _demo_state["message"] = ""
+
+
+@app.route("/api/demo/start", methods=["POST"])
+@login_required
+@admin_required
+def api_demo_start():
+    with _demo_lock:
+        status = _demo_state["status"]
+        if status in ("starting", "running", "stopping"):
+            return jsonify({"ok": False, "error": "Demo already in progress"}), 409
+        _demo_stop_event.clear()
+        _demo_state["status"] = "starting"
+        _demo_state["message"] = "Initializing…"
+        t = threading.Thread(target=_demo_worker, daemon=True)
+        _demo_state["thread"] = t
+    t.start()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/demo/status", methods=["GET"])
+@login_required
+def api_demo_status():
+    with _demo_lock:
+        return jsonify({
+            "status": _demo_state["status"],
+            "message": _demo_state["message"],
+        })
+
+
+@app.route("/api/demo/stop", methods=["POST"])
+@login_required
+@admin_required
+def api_demo_stop():
+    """Abort a running demo early."""
+    with _demo_lock:
+        status = _demo_state["status"]
+        if status not in ("starting", "running"):
+            return jsonify({"ok": False, "error": "No active demo to stop"}), 409
+        _demo_state["status"] = "stopping"
+        _demo_state["message"] = "Stopping…"
+
+    # Signal the worker thread to exit its loops immediately
+    _demo_stop_event.set()
+
+    # Also kill the processes so they don't linger
+    with _demo_lock:
+        ffmpeg_proc = _demo_state.get("ffmpeg_proc")
+        mediamtx_proc = _demo_state.get("mediamtx_proc")
+    _kill_proc(ffmpeg_proc)
+    _kill_proc(mediamtx_proc)
+
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # File browser — admin-only view of the filesystem rooted at FILES_ROOT
 # ---------------------------------------------------------------------------
 
