@@ -85,6 +85,16 @@
         "username_env": null,
         "password_env": null
       }
+    },
+    {
+      "enabled": true,
+      "id": 5,
+      "name": "cam5",
+      "url": "rtsp://localhost:8554/desktop",
+      "auth": {
+        "username_env": null,
+        "password_env": null
+      }
     }
   ]
 }
