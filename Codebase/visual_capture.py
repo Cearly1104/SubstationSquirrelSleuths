@@ -4,7 +4,9 @@ import shutil
 import queue
 import pipeline_status
 
-def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, stop):
+from pathlib import Path
+
+def episode_recorder(cam, config, capture_dir, detection_queue, stop):
 
     ## Subdirectory Creation
     # Level 1 capture subdirectories
@@ -69,6 +71,7 @@ def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, sto
                 if event.event_type == "START" and not episode_active:
                     episode_active = True
                     start_time = event.timestamp
+                    group_dir = event.group_dir
                     print(f"[{cam.name}] Episode START at {start_time}")
 
                 # End -> save end timestamp, finalize the episode by copying video segments into a new directory 
@@ -78,7 +81,7 @@ def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, sto
                     print(f"[{cam.name}] Episode END at {end_time}")
 
                     if start_time is not None:
-                        finalize_episode(cam.name, buffer_dir, episode_dir, results_dir, start_time)
+                        finalize_episode(cam.name, buffer_dir, episode_dir, start_time, group_dir)
                     episode_active = False
                     start_time = None
                     end_time = None
@@ -109,10 +112,13 @@ def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, sto
 
 
 
-def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time):
+def finalize_episode(cam_name, buffer_dir, episode_dir, start_time, group_dir):
 
-    results_dir = results_dir / start_time.strftime('%Y-%m-%d_%I.%M.%S%p') / cam_name
-    results_dir.mkdir(parents=True, exist_ok=True)
+    episode_ts_str = start_time.strftime('%Y-%m-%d_%I.%M.%S%p')
+    date_str = start_time.strftime("%Y-%m-%d")
+    results_path = Path("detections") / date_str / group_dir / episode_ts_str / cam_name
+    results_path.mkdir(parents=True, exist_ok=True)
+    
 
     # Give FFmpeg a second to finish writing last segment (avoid concatenating an unfinished file)
     time.sleep(1)
@@ -138,7 +144,7 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
             f.write(f"file '{seg.name}'\n")
 
     # Output episode named with camera id and detection timestamp
-    output_file = results_dir / f"{cam_name}_{start_time.strftime('%Y-%m-%d_%I.%M.%S%p')}_raw.mp4" 
+    output_file = results_path / f"{cam_name}_{episode_ts_str}_raw.mp4"
     
     # Concate segments into .mp4
     concat_cmd = [
@@ -153,9 +159,6 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
     subprocess.run(concat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
     print(f"[{cam_name}] Episode saved -> {output_file}")
-
-    # Cleanup temp directory
-    shutil.rmtree(episode_temp_dir)
 
 def recording_mode_recorder(cam, config, timestamp, results_dir, stop, status_dir=None):
 
