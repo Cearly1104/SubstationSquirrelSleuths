@@ -127,7 +127,7 @@ def analysis_worker(config, analysis_queue, stop, status_dir=None, logging_queue
 
         episode_ts_str = timestamp.strftime("%Y-%m-%d_%I.%M.%S%p")
         date_str = timestamp.strftime("%Y-%m-%d")
-        output_dir = Path("detections") / date_str / group_dir / episode_ts_str / cam_name
+        output_dir = Path("detections") / date_str / group_dir / episode_ts_str
         output_dir.mkdir(parents=True, exist_ok=True)
 
         if status_dir:

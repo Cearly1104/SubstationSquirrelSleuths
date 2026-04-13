@@ -115,7 +115,7 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, start_time, group_dir, a
 
     episode_ts_str = start_time.strftime('%Y-%m-%d_%I.%M.%S%p')
     date_str = start_time.strftime("%Y-%m-%d")
-    results_path = Path("detections") / date_str / group_dir / episode_ts_str / cam_name
+    results_path = Path("detections") / date_str / group_dir / episode_ts_str
     results_path.mkdir(parents=True, exist_ok=True)
     
 
