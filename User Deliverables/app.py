@@ -4,12 +4,14 @@ Serves the user deliverables dashboard over a local WiFi access point
 hosted on the Jetson Orin Nano.
 """
 
+import io
 import os
 import json
 import secrets
 import subprocess
 import threading
 import time
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from functools import wraps
@@ -491,6 +493,46 @@ def serve_video(day_id, ts, cam, filename):
     if folder.is_dir():
         return send_from_directory(str(folder), filename)
     abort(404)
+
+
+@app.route("/download/<day_id>/<ts>/<cam>/images")
+@login_required
+def download_images(day_id, ts, cam):
+    folder = DATA_DIR / day_id / ts / cam
+    if not folder.is_dir():
+        abort(404)
+    images, _ = _list_analysis_outputs(folder)
+    if not images:
+        abort(404)
+    if len(images) == 1:
+        return send_from_directory(str(folder), images[0], as_attachment=True)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in images:
+            zf.write(folder / name, name)
+    buf.seek(0)
+    return Response(buf, mimetype="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename=images_{ts}_{cam}.zip"})
+
+
+@app.route("/download/<day_id>/<ts>/<cam>/videos")
+@login_required
+def download_videos(day_id, ts, cam):
+    folder = DATA_DIR / day_id / ts / cam
+    if not folder.is_dir():
+        abort(404)
+    _, videos = _list_analysis_outputs(folder)
+    if not videos:
+        abort(404)
+    if len(videos) == 1:
+        return send_from_directory(str(folder), videos[0], as_attachment=True)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:  # STORED — mp4 is already compressed
+        for name in videos:
+            zf.write(folder / name, name)
+    buf.seek(0)
+    return Response(buf, mimetype="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename=videos_{ts}_{cam}.zip"})
 
 
 @app.route("/demo/<path:filename>")

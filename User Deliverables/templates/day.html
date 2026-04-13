@@ -37,7 +37,17 @@
 
   {% for ev in day.events %}
   <section class="card" style="margin-bottom:16px;">
-    <h3>{{ ev.ts }} — {{ ev.cam }}</h3>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+      <h3 style="margin:0;">{{ ev.ts }} — {{ ev.cam }}</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        {% if ev.images %}
+        <a class="pill" href="{{ url_for('download_images', day_id=day.day, ts=ev.ts, cam=ev.cam) }}" style="font-size:.82rem;padding:6px 14px;">&#8595; Images ({{ ev.images | length }})</a>
+        {% endif %}
+        {% if ev.videos %}
+        <a class="pill" href="{{ url_for('download_videos', day_id=day.day, ts=ev.ts, cam=ev.cam) }}" style="font-size:.82rem;padding:6px 14px;">&#8595; Videos ({{ ev.videos | length }})</a>
+        {% endif %}
+      </div>
+    </div>
     <div class="layout">
       <div>
         <h4 style="margin:0 0 8px;">Images ({{ ev.images | length }})</h4>

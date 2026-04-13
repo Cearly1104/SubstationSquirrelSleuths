@@ -4,7 +4,7 @@ import shutil
 import queue
 import pipeline_status
 
-def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, stop):
+def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, analysis_queue, stop):
 
     ## Subdirectory Creation
     # Level 1 capture subdirectories
@@ -78,7 +78,7 @@ def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, sto
                     print(f"[{cam.name}] Episode END at {end_time}")
 
                     if start_time is not None:
-                        finalize_episode(cam.name, buffer_dir, episode_dir, results_dir, start_time)
+                        finalize_episode(cam.name, buffer_dir, episode_dir, results_dir, start_time, analysis_queue)
                     episode_active = False
                     start_time = None
                     end_time = None
@@ -109,7 +109,7 @@ def episode_recorder(cam, config, capture_dir, results_dir, detection_queue, sto
 
 
 
-def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time):
+def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time, analysis_queue):
 
     results_dir = results_dir / start_time.strftime('%Y-%m-%d_%I.%M.%S%p') / cam_name
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -153,6 +153,15 @@ def finalize_episode(cam_name, buffer_dir, episode_dir, results_dir, start_time)
     subprocess.run(concat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
     print(f"[{cam_name}] Episode saved -> {output_file}")
+
+    if output_file.exists() and output_file.stat().st_size > 0:
+        analysis_queue.put({
+            "clip_path": str(output_file),
+            "cam_name": cam_name,
+            "timestamp": start_time
+        })
+    else:
+        print(f"Warning: capture video missing or empty for {cam_name} at {start_time}, skipping analysis")
 
     # Cleanup temp directory
     shutil.rmtree(episode_temp_dir)

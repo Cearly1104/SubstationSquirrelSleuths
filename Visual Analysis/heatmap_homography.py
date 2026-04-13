@@ -6,17 +6,17 @@ import numpy as np
 from ultralytics import YOLO
 
 
-VIDEO_PATH = r"C:\Users\cpear\Documents\VisualAnalysis\squirrelmapping.mp4"
-MODEL_PATH = r"C:\Users\cpear\Documents\VisualAnalysis\runs\detect\train10\weights\best.pt"
+VIDEO_PATH = r"/home/sss/SSS/Codebase/detections/2026-04-12/2026-04-12_10.35.34PM/cam3/cam3_2026-04-12_10.35.34PM_raw.mp4"
+MODEL_PATH = r"/home/sss/SSS/Codebase/Weights/best.pt"
 DEVICE = "cuda"
 CONF = 0.20
 CLASS_NAME_CONTAINS = "squirrel"  # Set to None to keep all classes
 TRACKER_CFG = "bytetrack.yaml"
 
 # Bird's-eye plane configuration
-PLANE_WIDTH_M = 8.0
-PLANE_HEIGHT_M = 6.0
-PIXELS_PER_METER = 100
+PLANE_WIDTH_M = 3
+PLANE_HEIGHT_M = 3
+PIXELS_PER_METER = 192
 
 HEAT_RADIUS = 16
 HEAT_BLUR = 31
@@ -58,11 +58,21 @@ def select_ground_points(frame):
     """Interactive selection of 4 points on the image ground plane."""
     window = "Select 4 Ground Points"
     points = []
+    cursor = [0, 0]
     preview = frame.copy()
 
     def redraw():
         nonlocal preview
         preview = frame.copy()
+
+        # Rubber-band line from last placed point to cursor
+        if 0 < len(points) < 4:
+            cv2.line(preview, points[-1], tuple(cursor), (0, 200, 255), 1, cv2.LINE_AA)
+
+        # Closing line from cursor back to first point once 3 are placed
+        if len(points) == 3:
+            cv2.line(preview, tuple(cursor), points[0], (0, 200, 255), 1, cv2.LINE_AA)
+
         for i, (x, y) in enumerate(points):
             cv2.circle(preview, (x, y), 6, (0, 255, 255), -1)
             cv2.putText(
@@ -91,9 +101,10 @@ def select_ground_points(frame):
         )
 
     def on_mouse(event, x, y, _flags, _userdata):
+        cursor[0], cursor[1] = x, y
         if event == cv2.EVENT_LBUTTONDOWN and len(points) < 4:
             points.append((x, y))
-            redraw()
+        redraw()
 
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(window, on_mouse)
@@ -155,6 +166,15 @@ def main():
         raise RuntimeError("Video has no readable frames.")
 
     src_pts = select_ground_points(first_frame)
+
+    coords = src_pts.tolist()
+    print("\n--- Calibration points (copy into settings.json as \"source_points\") ---")
+    print("[")
+    for i, (x, y) in enumerate(coords):
+        comma = "," if i < len(coords) - 1 else ""
+        print(f"  [{x:.1f}, {y:.1f}]{comma}")
+    print("]")
+    print("--------------------------------------------------------------------------\n")
 
     bev_w = int(PLANE_WIDTH_M * PIXELS_PER_METER)
     bev_h = int(PLANE_HEIGHT_M * PIXELS_PER_METER)

@@ -7,6 +7,7 @@ import queue
 from datetime import datetime
 from dataclasses import dataclass
 import pipeline_status
+from visual_analysis import AnalysisResult
 
 # Dictionary of each camera's frame state
 # Contains a frame, timestamp, and write lock to eliminate race conditions
@@ -82,7 +83,7 @@ def batch_frames(cameras, frozen_threshold):
 # Main detection function, takes fresh frames from helper->batch functions and processes them with a YOLO model
 # Model outputs squirrel detections and prompts the capture system to record squirrel detection episodes
 # Detection logs are taken and annotated processed frames are stored for analysis system usage, prompted by episode write completion
-def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis_queue, logging_queue, stop, status_dir=None):
+def squirrel_detector(cameras, config, detection_dir, detection_queues, logging_queue, stop, status_dir=None):
 
     cam_lookup = {cam.id: cam for cam in cameras}
 
@@ -224,16 +225,6 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
                                 state["annotated_writer"].release()
                                 state["annotated_writer"] = None
 
-                            clip_path = state["episode_dir"] / "_raw.mp4"
-                            if clip_path.exists() and clip_path.stat().st_size > 0:
-                                analysis_queue.put({
-                                    "clip_path": str(clip_path),
-                                    "cam_name": cam_name,
-                                    "timestamp": state["start_time"]
-                                })
-                            else:
-                                #TODO convert to error
-                                print(f"Warning: clip missing or empty for episode {state['episode_dir']} (cam {cam_id}), skipping analysis")
 
                             # Update camera's episode state after episode completion
                             state["in_episode"] = False
@@ -409,6 +400,21 @@ def episode_logger(cameras, config, logging_queue, det_mode_dir, stop_event):
 
             print(line)
 
+            with open(LifetimeLog, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            if DailyLog:
+                with open(DailyLog, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+
+        # If entry is an AnalysisResult, log the completed analysis stage
+        elif isinstance(entry, AnalysisResult):
+            ts  = entry.completed_at.strftime("%I:%M:%S.%f")[:-3] + entry.completed_at.strftime("%p")
+            ep  = entry.episode_timestamp.strftime("%I:%M:%S.%f")[:-3] + entry.episode_timestamp.strftime("%p")
+            line = (
+                f"[{ts}] - AN_{entry.stage:<9} - Camera: {entry.cam_name:<20} - "
+                f"Episode: {ep} - Output: {entry.output_file}"
+            )
+            print(line)
             with open(LifetimeLog, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
             if DailyLog:
