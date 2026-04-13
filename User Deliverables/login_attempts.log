@@ -14,3 +14,23 @@
 2026-04-11T14:52:47,success,admin,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
 2026-04-12T14:02:22,success,admin,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
 2026-04-12T14:18:55,success,admin,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
+2026-04-12T21:57:38,success,admin,10.42.0.50,Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML  like Gecko) Chrome/146.0.0.0 Safari/537.36
+2026-04-12T22:22:24,success,admin,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
+2026-04-12T23:59:45,success,admin,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
+2026-04-13T00:02:19,success,user,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
+2026-04-13T00:02:42,success,admin,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
+2026-04-13T00:18:47,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T00:20:40,success,user,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T00:21:08,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T00:31:49,success,admin,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
+2026-04-13T00:32:43,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T00:34:56,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T00:36:39,success,admin,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
+2026-04-13T00:49:22,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T01:01:12,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T01:06:26,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T01:07:59,success,admin,127.0.0.1,Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0
+2026-04-13T01:13:06,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T01:25:25,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T01:26:05,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148
+2026-04-13T01:37:14,success,admin,10.42.0.125,Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML  like Gecko) Mobile/15E148

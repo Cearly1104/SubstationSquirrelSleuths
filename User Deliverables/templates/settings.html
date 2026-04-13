@@ -233,5 +233,104 @@
   checkPipelineStatus();
   setInterval(checkPipelineStatus, 10000);
   </script>
+
+  {% if is_admin %}
+  <hr style="border:none;border-top:1px solid var(--line);margin:24px 0">
+  <div class="actions" style="align-items:flex-start;flex-direction:column;gap:10px">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" id="demo-btn" class="btn secondary" onclick="startDemo()">
+        Start Demo
+      </button>
+      <button type="button" id="demo-stop-btn" class="btn secondary" style="display:none;border-color:#7a2a2a;color:#ffb4b4" onclick="stopDemo()">
+        Stop Demo
+      </button>
+      <span id="demo-status" style="font-size:.86rem"></span>
+    </div>
+    <p style="margin:0;font-size:.84rem;color:var(--muted);max-width:540px">
+      Runs a headless demo using a practice video: starts the RTSP server,
+      streams the video, restarts the pipeline, waits for analysis to finish,
+      then shuts everything down automatically.
+    </p>
+  </div>
+
+  <script>
+  let _demoPollInterval = null;
+
+  async function startDemo() {
+    const btn     = document.getElementById('demo-btn');
+    const stopBtn = document.getElementById('demo-stop-btn');
+    const status  = document.getElementById('demo-status');
+    btn.disabled = true;
+    status.style.color = 'var(--muted)';
+    status.textContent = 'Starting\u2026';
+    try {
+      const res  = await fetch('{{ url_for("api_demo_start") }}', {method: 'POST'});
+      const data = await res.json();
+      if (!data.ok) {
+        status.style.color = '#ffb4b4';
+        status.textContent = 'Error: ' + (data.error || 'unknown');
+        btn.disabled = false;
+        return;
+      }
+      stopBtn.style.display = '';
+      _demoPollInterval = setInterval(pollDemoStatus, 2000);
+    } catch (e) {
+      status.style.color = '#ffb4b4';
+      status.textContent = 'Request failed';
+      btn.disabled = false;
+    }
+  }
+
+  async function stopDemo() {
+    const stopBtn = document.getElementById('demo-stop-btn');
+    stopBtn.disabled = true;
+    try {
+      await fetch('{{ url_for("api_demo_stop") }}', {method: 'POST'});
+    } catch (e) { /* ignore */ }
+  }
+
+  async function pollDemoStatus() {
+    const btn     = document.getElementById('demo-btn');
+    const stopBtn = document.getElementById('demo-stop-btn');
+    const status  = document.getElementById('demo-status');
+    try {
+      const res  = await fetch('{{ url_for("api_demo_status") }}');
+      const data = await res.json();
+      const s = data.status;
+
+      if (s === 'done') {
+        clearInterval(_demoPollInterval);
+        _demoPollInterval = null;
+        status.style.color = '#b4ffcc';
+        status.textContent = 'Demo complete \u2713';
+        btn.disabled = false;
+        stopBtn.style.display = 'none';
+        stopBtn.disabled = false;
+      } else if (s === 'error') {
+        clearInterval(_demoPollInterval);
+        _demoPollInterval = null;
+        status.style.color = '#ffb4b4';
+        status.textContent = 'Error: ' + (data.message || 'unknown');
+        btn.disabled = false;
+        stopBtn.style.display = 'none';
+        stopBtn.disabled = false;
+      } else if (s === 'idle') {
+        // Stopped early
+        clearInterval(_demoPollInterval);
+        _demoPollInterval = null;
+        status.style.color = 'var(--muted)';
+        status.textContent = 'Demo stopped.';
+        btn.disabled = false;
+        stopBtn.style.display = 'none';
+        stopBtn.disabled = false;
+      } else {
+        status.style.color = 'var(--muted)';
+        status.textContent = data.message || s;
+        stopBtn.disabled = false;
+      }
+    } catch (e) { /* ignore transient errors */ }
+  }
+  </script>
+  {% endif %}
 </main>
 {% endblock %}

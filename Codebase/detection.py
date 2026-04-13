@@ -7,6 +7,7 @@ import queue
 from datetime import datetime
 from dataclasses import dataclass
 import pipeline_status
+from visual_analysis import AnalysisResult
 
 # Dictionary of each camera's frame state
 # Contains a frame, timestamp, and write lock to eliminate race conditions
@@ -40,23 +41,50 @@ current_group_dir = ""      # set to the string of the start timestamp of last a
 def detection_helper(camera, stop):
 
     state = states[camera.id]
-    
-    # Use OpenCV to open the camera feed for frame capture
-    cap = cv2.VideoCapture(camera.url, cv2.CAP_FFMPEG)
-    if not cap.isOpened():
-        raise RuntimeError(f"Could not open video/stream: {camera.url}")
-    
+
+    # Retry connecting to the stream — cameras and demo RTSP streams may not
+    # be available the instant the pipeline starts.  Retry for up to 30 s
+    # before giving up, so a slow-starting source doesn't silently kill the
+    # thread.
+    cap = None
+    for _ in range(30):
+        if stop.is_set():
+            return
+        cap = cv2.VideoCapture(camera.url, cv2.CAP_FFMPEG)
+        if cap.isOpened():
+            break
+        cap.release()
+        cap = None
+        time.sleep(1)
+
+    if cap is None:
+        raise RuntimeError(f"Could not open video/stream after 30 attempts: {camera.url}")
+
     # Set low frame capture buffersize for low latency
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-    # Grab frame+current timestamp in a continuous loop 
+    # Grab frame+current timestamp in a continuous loop
+    # Track consecutive empty reads — if the stream stalls after connecting
+    # (e.g. mediamtx accepted the connection before the publisher was ready),
+    # reopen the capture rather than looping on empty reads indefinitely.
+    empty_count = 0
     while not stop.is_set():
         ret, frame = cap.read()
         timestamp = datetime.now()
         if not ret:
+            empty_count += 1
             time.sleep(0.01)
+            # ~3 s of consecutive empty reads → reconnect
+            if empty_count >= 300:
+                cap.release()
+                time.sleep(1)
+                cap = cv2.VideoCapture(camera.url, cv2.CAP_FFMPEG)
+                if cap.isOpened():
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                empty_count = 0
             continue
-        
+        empty_count = 0
+
         # Update the camera's latest frame info if unlocked
         with state["lock"]:
             state["frame"] = frame
@@ -87,7 +115,7 @@ def batch_frames(cameras, frozen_threshold):
 # Main detection function, takes fresh frames from helper->batch functions and processes them with a YOLO model
 # Model outputs squirrel detections and prompts the capture system to record squirrel detection episodes
 # Detection logs are taken and annotated processed frames are stored for analysis system usage, prompted by episode write completion
-def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis_queue, logging_queue, stop, status_dir=None):
+def squirrel_detector(cameras, config, detection_dir, detection_queues, logging_queue, stop, status_dir=None):
     global group_last_activity, current_group_dir
 
     cam_lookup = {cam.id: cam for cam in cameras}
@@ -241,18 +269,6 @@ def squirrel_detector(cameras, config, detection_dir, detection_queues, analysis
                             if state["annotated_writer"] is not None:
                                 state["annotated_writer"].release()
                                 state["annotated_writer"] = None
-
-                            clip_path = state["episode_dir"] / "_raw.mp4"
-                            if clip_path.exists() and clip_path.stat().st_size > 0:
-                                analysis_queue.put({
-                                    "clip_path": str(clip_path),
-                                    "cam_name": cam_name,
-                                    "timestamp": state["start_time"],
-                                    "group_dir": str(current_group_dir)
-                                })
-                            else:
-                                #TODO convert to error
-                                print(f"Warning: clip missing or empty for episode {state['episode_dir']} (cam {cam_id}), skipping analysis")
 
                             # Update camera's episode state after episode completion
                             state["in_episode"] = False
@@ -428,6 +444,21 @@ def episode_logger(cameras, logging_queue, det_mode_dir, stop_event):
 
             print(line)
 
+            with open(LifetimeLog, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            if DailyLog:
+                with open(DailyLog, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+
+        # If entry is an AnalysisResult, log the completed analysis stage
+        elif isinstance(entry, AnalysisResult):
+            ts  = entry.completed_at.strftime("%I:%M:%S.%f")[:-3] + entry.completed_at.strftime("%p")
+            ep  = entry.episode_timestamp.strftime("%I:%M:%S.%f")[:-3] + entry.episode_timestamp.strftime("%p")
+            line = (
+                f"[{ts}] - AN_{entry.stage:<9} - Camera: {entry.cam_name:<20} - "
+                f"Episode: {ep} - Output: {entry.output_file}"
+            )
+            print(line)
             with open(LifetimeLog, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
             if DailyLog:

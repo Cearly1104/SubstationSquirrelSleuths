@@ -1,13 +1,25 @@
 import os
 import gc
+import subprocess
 import torch
 from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from queue import Empty
 
 import cv2
 import numpy as np
 import pipeline_status
+
+
+@dataclass
+class AnalysisResult:
+    cam_name: str
+    episode_timestamp: datetime
+    stage: str        # "TRACK", "HEATMAP", "HOMOGRAPHY"
+    completed_at: datetime
+    output_file: str  # filename only
 
 
 # ========================== Homography Defaults ==========================
@@ -57,6 +69,30 @@ def _release_model(model):
         pass
 
 
+def _transcode_h264(path: str) -> str:
+    """Re-encode an mp4v file to H.264 in-place for browser compatibility.
+
+    Tries h264_nvenc first (Jetson hardware encoder), falls back to libx264.
+    Returns the original path unchanged if transcoding fails.
+    """
+    tmp = path + ".tmp.mp4"
+    for encoder in ("h264_nvenc", "libx264"):
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", path, "-c:v", encoder, "-preset", "fast", tmp],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        if result.returncode == 0:
+            os.replace(tmp, path)
+            return path
+    # Clean up temp file if both encoders failed
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    print(f"[analysis] Warning: H.264 transcode failed for {path}, file left as mp4v")
+    return path
+
+
 def _order_points(pts):
     rect = np.zeros((4, 2), dtype=np.float32)
     s = pts.sum(axis=1)
@@ -70,7 +106,7 @@ def _order_points(pts):
 
 # ========================== Analysis Worker ==========================
 
-def analysis_worker(config, analysis_queue, stop, status_dir=None):
+def analysis_worker(config, analysis_queue, stop, status_dir=None, logging_queue=None):
     """Watches for completed episode videos and runs sequential analysis on each."""
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -97,7 +133,7 @@ def analysis_worker(config, analysis_queue, stop, status_dir=None):
         if status_dir:
             pipeline_status.set_analyzing(status_dir, True)
         try:
-            run_analysis(video_path, output_dir, cam_name, timestamp, config, device, stop)
+            run_analysis(video_path, output_dir, cam_name, timestamp, config, device, stop, logging_queue)
         except Exception as e:
             import traceback
             print(f"[analysis] Error processing {video_path}: {e}")
@@ -162,6 +198,7 @@ def stage_track(video_path, output_dir, base, config, device, stop, class_filter
     cap.release()
     writer.release()
     _release_model(model)
+    _transcode_h264(out_path)
 
     print(f"[analysis]   Saved: {out_path}")
     return out_path
@@ -219,6 +256,7 @@ def stage_heatmap(video_path, output_dir, base, config, device, stop, class_filt
 
     cap.release()
     writer.release()
+    _transcode_h264(vid_path)
 
     img_path = None
     if last_frame is not None and hasattr(heatmap, "heatmap") and heatmap.heatmap is not None:
@@ -355,6 +393,7 @@ def stage_homography(video_path, output_dir, base, config, device, stop, class_f
     cap.release()
     writer.release()
     _release_model(model)
+    _transcode_h264(out_path)
 
     img_path = None
     if bev_overlay is not None:
@@ -368,15 +407,36 @@ def stage_homography(video_path, output_dir, base, config, device, stop, class_f
 
 
 # ========================== Pipeline Entry Point ==========================
-def run_analysis(video_path, output_dir, cam_name, timestamp, config, device, stop):
+def run_analysis(video_path, output_dir, cam_name, timestamp, config, device, stop, logging_queue=None):
     video_path = str(video_path)
     base = f"{cam_name}_{timestamp.strftime('%Y-%m-%d_%I.%M.%S%p')}"
 
     print(f"[analysis] Starting sequential analysis on: {video_path}")
 
     track_out = stage_track(video_path, output_dir, base, config, device, stop)
+    if logging_queue and track_out:
+        logging_queue.put(AnalysisResult(
+            cam_name=cam_name, episode_timestamp=timestamp, stage="TRACK",
+            completed_at=datetime.now(), output_file=Path(track_out).name
+        ))
+
     heatmap_out = stage_heatmap(video_path, output_dir, base, config, device, stop)
+    if logging_queue and heatmap_out:
+        _, img_path = heatmap_out
+        if img_path:
+            logging_queue.put(AnalysisResult(
+                cam_name=cam_name, episode_timestamp=timestamp, stage="HEATMAP",
+                completed_at=datetime.now(), output_file=Path(img_path).name
+            ))
+
     homography_out = stage_homography(video_path, output_dir, base, config, device, stop)
+    if logging_queue and homography_out:
+        _, img_path = homography_out
+        if img_path:
+            logging_queue.put(AnalysisResult(
+                cam_name=cam_name, episode_timestamp=timestamp, stage="HOMOGRAPHY",
+                completed_at=datetime.now(), output_file=Path(img_path).name
+            ))
 
     print("[analysis] All stages complete.")
     return {
